@@ -183,4 +183,68 @@ if not df_raw.empty:
 
     act = sum([get_score(df_raw, i, 6) for i in range(12, 54)])
     tgt, bgt, ly = get_score(df_raw, 3, 7), get_score(df_raw, 3, 9), get_score(df_raw, 3, 11)
-    mt, mb
+    mt, mb, ml = get_score(df_raw, 6, 7), get_score(df_raw, 6, 9), get_score(df_raw, 6, 11)
+
+    st.markdown("<h4>All Stores ※FC excluded</h4>", unsafe_allow_html=True)
+    st.markdown(f'''
+    <table class="base-table">
+        <tr><th style="background-color:#606970;">月次受注額</th><td colspan="5" style="font-size:1.2em;font-weight:bold;">{act:,.0f}</td></tr>
+        <tr><th>月次目標</th><td>{tgt:,.0f}</td><th>月次予算</th><td>{bgt:,.0f}</td><th>前年受注額</th><td>{ly:,.0f}</td></tr>
+        <tr><th>目標比</th><td>{fmt_p(act/tgt*100 if tgt else 0, act>=tgt)}</td><th>予算比</th><td>{fmt_p(act/bgt*100 if bgt else 0, act>=bgt)}</td><th>前年比</th><td>{fmt_p(act/ly*100 if ly else 0, act>=ly)}</td></tr>
+        <tr><th>差額</th><td>{fmt_v(act-tgt, act>=tgt)}</td><th>差額</th><td>{fmt_v(act-bgt, act>=bgt)}</td><th>差額</th><td>{fmt_v(act-ly, act>=ly)}</td></tr>
+        <tr><th>MTD目標</th><td>{mt:,.0f}</td><th>MTD予算</th><td>{mb:,.0f}</td><th>MTD前年</th><td>{ml:,.0f}</td></tr>
+        <tr><th>MTD目標%</th><td>{fmt_p(act/mt*100 if mt else 0, act>=mt)}</td><th>MTD予算%</th><td>{fmt_p(act/mb*100 if mb else 0, act>=mb)}</td><th>MTD前年%</th><td>{fmt_p(act/ml*100 if ml else 0, act>=ml)}</td></tr>
+        <tr><th>MTD目標 差額</th><td>{fmt_v(act-mt, act>=mt)}</td><th>MTD予算 差額</th><td>{fmt_v(act-mb, act>=mb)}</td><th>MTD前年 差額</th><td>{fmt_v(act-ml, act>=ml)}</td></tr>
+    </table>
+    ''', unsafe_allow_html=True)
+
+    st.markdown("<h4>WEEKサマリー</h4>", unsafe_allow_html=True)
+    w_rows = ""
+    for w_n, r_i in week_row_map.items():
+        wa, wt, wb, wl = get_score(df_raw, r_i, 6), get_score(df_raw, r_i, 7), get_score(df_raw, r_i, 10), get_score(df_raw, r_i, 13)
+        w_rows += f'<tr><td>{w_n}</td><td>{wa:,.0f}</td><td>{wt:,.0f}</td><td>{fmt_v(wa-wt, wa>=wt)}</td><td>{fmt_p(wa/wt*100 if wt else 0, wa>=wt)}</td><td>{wb:,.0f}</td><td>{fmt_v(wa-wb, wa>=wb)}</td><td>{fmt_p(wa/wb*100 if wb else 0, wa>=wb)}</td><td>{wl:,.0f}</td><td>{fmt_p(wa/wl*100 if lv else 0, wa>=wl)}</td></tr>'
+    st.markdown(f'<table class="base-table"><tr><th>WEEK</th><th>受注額</th><th>目標</th><th>差額</th><th>達成率</th><th>予算</th><th>差額</th><th>達成率</th><th>前年実績</th><th>前年比</th></tr>{w_rows}</table>', unsafe_allow_html=True)
+
+    current_week_row_idx = week_row_map[sel_week]
+    st.markdown(f"<h4>KPI別 ({sel_week})</h4>", unsafe_allow_html=True)
+    k_data = [("座数", 44, 48, 52, "zasu"), ("客単価", 47, 51, 55, "tanka"), ("CVR", 45, 49, 53, "cvr"), ("客数", 46, 50, 54, "kyaku")]
+    k_rows = ""
+    for k_n, ac, tc, lc, t_k in k_data:
+        av, tv, lv = get_score(df_raw, current_week_row_idx, ac), get_score(df_raw, current_week_row_idx, tc), get_score(df_raw, current_week_row_idx, lc)
+        u = "¥" if k_n == "客単価" else ""
+        m = "◯" if (av/tv if tv else 0) >= 1 else "△" if (av/tv if tv else 0) >= 0.9 else "✕"
+        t_s = f"{u}{tv:,.0f}" if tv >= 100 else f"{u}{tv:.2f}"
+        reason = str(current_txt[t_k]).replace("\n", "<br>")
+        k_rows += f'<tr><td>{m}</td><td>{k_n}</td><td>{t_s}</td><td>{fmt_v(av, av>=tv, u)}</td><td>{fmt_p(av/tv*100 if tv else 0, av>=tv)}</td><td>{fmt_p(av/lv*100 if lv else 0, av>=lv)}</td><td class="comment-cell">{reason}</td></tr>'
+    st.markdown(f'<table class="base-table kpi-table"><tr><th>評</th><th>KPI</th><th>目標</th><th>実績</th><th>目標比</th><th>LY比</th><th>理由</th></tr>{k_rows}</table>', unsafe_allow_html=True)
+
+    st.markdown(f"<h4>モール別MTD ({sel_week})</h4>", unsafe_allow_html=True)
+    store_names_row = df_raw.iloc[9].fillna("").astype(str).str.strip()
+    start_r = week_juchu_start_map[sel_week]
+    end_r = start_r + 7
+    mall_data_list = []
+    total_juchu_all_stores = 0
+    for group_name, stores in STORE_GROUPS.items():
+        group_juchu = 0
+        store_count = 0
+        for store in stores:
+            matching_cols = [idx for idx, name in enumerate(store_names_row) if name == store]
+            if matching_cols:
+                col_idx = matching_cols[0]
+                store_count += 1
+                group_juchu += sum([get_score(df_raw, r, col_idx + 1) for r in range(start_r, end_r)])
+        mall_data_list.append({"name": group_name, "count": store_count, "juchu": group_juchu})
+        total_juchu_all_stores += group_juchu
+    mall_report_rows = f'''
+    <tr style="background-color:#f0f2f6; font-weight:bold;">
+        <td>全体</td><td>{sum([d['count'] for d in mall_data_list])}</td><td>{total_juchu_all_stores:,.0f}</td><td>100.0%</td>
+    </tr>'''
+    for d in mall_data_list:
+        share = (d['juchu'] / total_juchu_all_stores * 100) if total_juchu_all_stores else 0
+        mall_report_rows += f'<tr><td>{d["name"]}</td><td>{d["count"]}</td><td>{d["juchu"]:,.0f}</td><td>{share:.1f}%</td></tr>'
+    st.markdown(f'<table class="base-table"><tr><th>業態</th><th>ストア数</th><th>受注実績</th><th>売上シェア</th></tr>{mall_report_rows}</table>', unsafe_allow_html=True)
+
+    st.markdown("<h4>■総評 / 今週のアクション</h4>", unsafe_allow_html=True)
+    st.markdown(f'<div class="summary-box">{str(current_txt["summary"])}</div>', unsafe_allow_html=True)
+else:
+    st.warning("数値データを読み込めませんでした。")
