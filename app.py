@@ -27,7 +27,7 @@ gc = gspread.authorize(auth_creds)
 SPREADSHEET_ID = "1KlZevjH2IbsV0kWQZxw1QjHy3EmsjG9vTKGtvVVTni8"
 SAVE_SHEET_ID = "1_8XbvigwRRIR-HxT5OEDlrKdpW8J9AjYYtjEk33LPIk"
 
-@st.cache_data(ttl=0) # 強制読み込み設定
+@st.cache_data(ttl=0) # キャッシュを無効化して強制的に最新を読み込む
 def get_dynamic_month_config():
     try:
         sh = gc.open_by_key(SPREADSHEET_ID)
@@ -41,11 +41,12 @@ def get_dynamic_month_config():
                     month_num = int(nums[0][2:])
                     month_name = f"{month_num}月"
                     config[month_name] = str(ws.id)
+        # 月の順に並び替え
         sorted_keys = sorted(config.keys(), key=lambda x: int(x.replace("月","")))
         return {k: config[k] for k in sorted_keys}
     except Exception as e:
         st.error(f"シート構成の取得に失敗しました: {e}")
-        return {"3月": "1502960872", "4月": "166364340"}
+        return {"3月": "1502960872", "4月": "166364340", "5月": "1657065097"}
 
 DYNAMIC_MONTH_CONFIG = get_dynamic_month_config()
 
@@ -202,7 +203,7 @@ if not df_raw.empty:
     w_rows = ""
     for w_n, r_i in week_row_map.items():
         wa, wt, wb, wl = get_score(df_raw, r_i, 6), get_score(df_raw, r_i, 7), get_score(df_raw, r_i, 10), get_score(df_raw, r_i, 13)
-        w_rows += f'<tr><td>{w_n}</td><td>{wa:,.0f}</td><td>{wt:,.0f}</td><td>{fmt_v(wa-wt, wa>=wt)}</td><td>{fmt_p(wa/wt*100 if wt else 0, wa>=wt)}</td><td>{wb:,.0f}</td><td>{fmt_v(wa-wb, wa>=wb)}</td><td>{fmt_p(wa/wb*100 if wb else 0, wa>=wb)}</td><td>{wl:,.0f}</td><td>{fmt_p(wa/wl*100 if lv else 0, wa>=wl)}</td></tr>'
+        w_rows += f'<tr><td>{w_n}</td><td>{wa:,.0f}</td><td>{wt:,.0f}</td><td>{fmt_v(wa-wt, wa>=wt)}</td><td>{fmt_p(wa/wt*100 if wt else 0, wa>=wt)}</td><td>{wb:,.0f}</td><td>{fmt_v(wa-wb, wa>=wb)}</td><td>{fmt_p(wa/wb*100 if wb else 0, wa>=wb)}</td><td>{wl:,.0f}</td><td>{fmt_p(wa/wl*100 if wl else 0, wa>=wl)}</td></tr>'
     st.markdown(f'<table class="base-table"><tr><th>WEEK</th><th>受注額</th><th>目標</th><th>差額</th><th>達成率</th><th>予算</th><th>差額</th><th>達成率</th><th>前年実績</th><th>前年比</th></tr>{w_rows}</table>', unsafe_allow_html=True)
 
     current_week_row_idx = week_row_map[sel_week]
