@@ -6,9 +6,13 @@ from google.oauth2.service_account import Credentials
 import io
 import requests
 import os
+import re  # 数字抽出用に追加
 
 # --- 1. ページ基本設定 ---
 st.set_page_config(page_title="ストアカルテ", layout="wide")
+
+# --- タイトル用ロゴ画像のURL ---
+LOGO_URL = "https://raw.githubusercontent.com/yone-lab/cart_log/main/j_logo.png"
 
 # --- 2. Googleスプレッドシート接続設定 ---
 @st.cache_resource
@@ -24,16 +28,37 @@ def get_gspread_auth():
 
 auth_creds = get_gspread_auth()
 gc = gspread.authorize(auth_creds)
+
+SPREADSHEET_ID = "1KlZevjH2IbsV0kWQZxw1QjHy3EmsjG9vTKGtvVVTni8"
 SAVE_SHEET_ID = "1_8XbvigwRRIR-HxT5OEDlrKdpW8J9AjYYtjEk33LPIk"
 
-# --- 3. 引用元データ設定 ---
-SPREADSHEET_ID = "1KlZevjH2IbsV0kWQZxw1QjHy3EmsjG9vTKGtvVVTni8"
-MONTH_CONFIG = {
-    "2026": {
-        "3月": {"gid": "1502960872"},
-        "4月": {"gid": "166364340"}
-    }
-}
+# --- 3. シート自動検知ロジック（改良版） ---
+@st.cache_data(ttl=60)
+def get_dynamic_month_config():
+    try:
+        sh = gc.open_by_key(SPREADSHEET_ID)
+        worksheets = sh.worksheets()
+        config = {}
+        
+        for ws in worksheets:
+            title = ws.title.strip()
+            # 「26」から始まるシートを対象にする
+            if title.startswith("26"):
+                # 文字列の中から数字だけを抜き出す（例：「2605シート」→「2605」）
+                nums = re.findall(r'\d+', title)
+                if nums and len(nums[0]) >= 4:
+                    month_num = int(nums[0][2:]) # 下2桁（05など）を取得
+                    month_name = f"{month_num}月"
+                    config[month_name] = str(ws.id)
+        
+        # 月の順に並び替え
+        sorted_keys = sorted(config.keys(), key=lambda x: int(x.replace("月","")))
+        return {k: config[k] for k in sorted_keys}
+    except Exception as e:
+        st.error(f"シート構成の取得に失敗しました: {e}")
+        return {"3月": "1502960872", "4月": "166364340"}
+
+DYNAMIC_MONTH_CONFIG = get_dynamic_month_config()
 
 # 業態・ストア対応リスト (省略なし)
 STORE_GROUPS = {
@@ -112,8 +137,9 @@ def save_to_sheet_live(search_key, data_list):
 
 # --- 5. サイドバー UI ---
 st.sidebar.header("📅 期間選択")
-sel_year = st.sidebar.selectbox("西暦", list(MONTH_CONFIG.keys()))
-sel_month = st.sidebar.selectbox("月", list(MONTH_CONFIG[sel_year].keys()))
+sel_year = st.sidebar.selectbox("西暦", ["2026"])
+sel_month = st.sidebar.selectbox("月", list(DYNAMIC_MONTH_CONFIG.keys()), index=len(DYNAMIC_MONTH_CONFIG)-1)
+
 week_row_map = {"W1": 57, "W2": 58, "W3": 59, "W4": 60, "W5": 61, "W6": 62}
 week_juchu_start_map = {"W1": 12, "W2": 19, "W3": 26, "W4": 33, "W5": 40, "W6": 47}
 
@@ -135,26 +161,19 @@ with st.sidebar.form("input_form"):
             st.rerun()
 
 # --- 6. メイン表示 ---
-current_gid = MONTH_CONFIG[sel_year][sel_month]["gid"]
+current_gid = DYNAMIC_MONTH_CONFIG[sel_month]
 df_raw = load_raw_data_auth(current_gid)
 
 if not df_raw.empty:
-    # --- ヘッダー（ロゴ + タイトル） ---
-    # logo.png が app.py と同じフォルダにある前提
-    logo_file = "logo.png"
+    st.markdown(f'''
+    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 20px;">
+        <img src="{LOGO_URL}" style="height: 50px; width: auto; border-radius: 4px; object-fit: contain;">
+        <h1 style="margin: 0; padding: 0; color: #3b484e; font-family: 'Meiryo', sans-serif; font-size: 2.2rem;">
+            ストアカルテ {sel_year}年{sel_month}
+        </h1>
+    </div>
+    ''', unsafe_allow_html=True)
     
-    col_logo, col_title = st.columns([1, 10])
-    with col_logo:
-        if os.path.exists(logo_file):
-            st.image(logo_file, width=60)
-        else:
-            # 万が一ファイルがない場合は絵文字を表示してエラーを防ぐ
-            st.write("🏢")
-            
-    with col_title:
-        st.markdown(f'<h1 style="margin-top: -5px; color: #3b484e; font-family: \'Meiryo\', sans-serif;">ストアカルテ {sel_year}年{sel_month}</h1>', unsafe_allow_html=True)
-    
-    # --- 既存のデザインCSS ---
     st.markdown('''
     <style>
         html, body, [class*="css"] { font-family: "Meiryo", sans-serif; color: #3b484e; }
@@ -170,7 +189,6 @@ if not df_raw.empty:
     </style>
     ''', unsafe_allow_html=True)
 
-    # --- 以下、完璧と言っていただいた既存ロジック ---
     def fmt_v(val, cond, unit=""):
         cls = "reach" if cond else "unmet"
         t = f"{unit}{abs(val):,.0f}" if abs(val) >= 100 else f"{unit}{abs(val):.2f}"
