@@ -6,6 +6,7 @@ from google.oauth2.service_account import Credentials
 import io
 import requests
 import os
+import re  # 数字抽出用に追加
 
 # --- 1. ページ基本設定 ---
 st.set_page_config(page_title="ストアカルテ", layout="wide")
@@ -28,15 +29,12 @@ def get_gspread_auth():
 auth_creds = get_gspread_auth()
 gc = gspread.authorize(auth_creds)
 
-# 読み取り元スプレッドシートID
 SPREADSHEET_ID = "1KlZevjH2IbsV0kWQZxw1QjHy3EmsjG9vTKGtvVVTni8"
-# 保存先シート（理由・総評用）
 SAVE_SHEET_ID = "1_8XbvigwRRIR-HxT5OEDlrKdpW8J9AjYYtjEk33LPIk"
 
-# --- 3. 【新機能】シート自動検知ロジック ---
-@st.cache_data(ttl=60) # 1分ごとに最新のシート構成をチェック
+# --- 3. シート自動検知ロジック（改良版） ---
+@st.cache_data(ttl=60)
 def get_dynamic_month_config():
-    """スプレッドシートから '26XX' 形式のシートを自動で取得する"""
     try:
         sh = gc.open_by_key(SPREADSHEET_ID)
         worksheets = sh.worksheets()
@@ -44,23 +42,25 @@ def get_dynamic_month_config():
         
         for ws in worksheets:
             title = ws.title.strip()
-            # 「26」から始まる4桁のシート（例：2603, 2604...）を対象にする
-            if title.startswith("26") and len(title) == 4:
-                month_num = int(title[2:]) # 後ろ2桁を数値化
-                month_name = f"{month_num}月"
-                config[month_name] = str(ws.id)
+            # 「26」から始まるシートを対象にする
+            if title.startswith("26"):
+                # 文字列の中から数字だけを抜き出す（例：「2605シート」→「2605」）
+                nums = re.findall(r'\d+', title)
+                if nums and len(nums[0]) >= 4:
+                    month_num = int(nums[0][2:]) # 下2桁（05など）を取得
+                    month_name = f"{month_num}月"
+                    config[month_name] = str(ws.id)
         
-        # 月の順（3月, 4月...）に並び替え
+        # 月の順に並び替え
         sorted_keys = sorted(config.keys(), key=lambda x: int(x.replace("月","")))
         return {k: config[k] for k in sorted_keys}
     except Exception as e:
         st.error(f"シート構成の取得に失敗しました: {e}")
-        return {"3月": "1502960872"} # 失敗時のバックアップ
+        return {"3月": "1502960872", "4月": "166364340"}
 
-# 自動取得した設定を反映
 DYNAMIC_MONTH_CONFIG = get_dynamic_month_config()
 
-# 業態・ストア対応リスト (変更なし)
+# 業態・ストア対応リスト (省略なし)
 STORE_GROUPS = {
     "イオンモール": ["mozoワンダーシティ","THE OUTLETS HIROSHIMA","イオンモールKYOTO","イオンモール旭川西","イオンモール綾川","イオンモール伊丹昆陽","イオンモール羽生","イオンモール岡崎","イオンモール岡山","イオンモール各務原インター","イオンモール橿原","イオンモール宮崎","イオンモール京都桂川","イオンモール熊本","イオンモール広島府中","イオンモール高崎","イオンモール札幌発寒","イオンモール鹿児島","イオンモール春日部","イオンモール新潟亀田インター","イオンモール須坂","イオンモール水戸内原","イオンモール川口","イオンモール倉敷","イオンモール草津","イオンモール大高","イオンモール筑紫野","イオンモール長久手","イオンモール天童","イオンモール徳島","イオンモール苫小牧","イオンモール白山","イオンモール八幡東","イオンモール姫路大津","イオンモール浜松市野","イオンモール浜松志都呂","イオンモール福岡","イオンモール豊川","イオンモール幕張新都心","イオンモール名古屋茶屋","イオンモール名取","イオンモール鈴鹿","イオンモール和歌山","イオンレイクタウンmori"],
     "ららぽーと": ["ららぽーとEXPOCITY","ららぽーとTOKYO-BAY","ららぽーと愛知東郷","ららぽーと横浜","ららぽーと海老名","ららぽーと堺","ららぽーと沼津","ららぽーと湘南平塚","ららぽーと新三郷","ららぽーと富士見","ららぽーと福岡","ららぽーと名古屋みなとアクルス","ららぽーと門真","ららぽーと立川立飛","ららぽーと和泉"],
@@ -137,7 +137,7 @@ def save_to_sheet_live(search_key, data_list):
 
 # --- 5. サイドバー UI ---
 st.sidebar.header("📅 期間選択")
-sel_year = st.sidebar.selectbox("西暦", ["2026"]) # 固定
+sel_year = st.sidebar.selectbox("西暦", ["2026"])
 sel_month = st.sidebar.selectbox("月", list(DYNAMIC_MONTH_CONFIG.keys()), index=len(DYNAMIC_MONTH_CONFIG)-1)
 
 week_row_map = {"W1": 57, "W2": 58, "W3": 59, "W4": 60, "W5": 61, "W6": 62}
@@ -165,7 +165,6 @@ current_gid = DYNAMIC_MONTH_CONFIG[sel_month]
 df_raw = load_raw_data_auth(current_gid)
 
 if not df_raw.empty:
-    # --- ヘッダー：ロゴとタイトルの近接配置 ---
     st.markdown(f'''
     <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 20px;">
         <img src="{LOGO_URL}" style="height: 50px; width: auto; border-radius: 4px; object-fit: contain;">
@@ -217,6 +216,7 @@ if not df_raw.empty:
     </table>
     ''', unsafe_allow_html=True)
 
+    # Weeklyサマリー
     st.markdown("<h4>WEEKサマリー</h4>", unsafe_allow_html=True)
     w_rows = ""
     for w_n, r_i in week_row_map.items():
@@ -224,6 +224,7 @@ if not df_raw.empty:
         w_rows += f'<tr><td>{w_n}</td><td>{wa:,.0f}</td><td>{wt:,.0f}</td><td>{fmt_v(wa-wt, wa>=wt)}</td><td>{fmt_p(wa/wt*100 if wt else 0, wa>=wt)}</td><td>{wb:,.0f}</td><td>{fmt_v(wa-wb, wa>=wb)}</td><td>{fmt_p(wa/wb*100 if wb else 0, wa>=wb)}</td><td>{wl:,.0f}</td><td>{fmt_p(wa/wl*100 if wl else 0, wa>=wl)}</td></tr>'
     st.markdown(f'<table class="base-table"><tr><th>WEEK</th><th>受注額</th><th>目標</th><th>差額</th><th>達成率</th><th>予算</th><th>差額</th><th>達成率</th><th>前年実績</th><th>前年比</th></tr>{w_rows}</table>', unsafe_allow_html=True)
 
+    # KPI別
     current_week_row_idx = week_row_map[sel_week]
     st.markdown(f"<h4>KPI別 ({sel_week})</h4>", unsafe_allow_html=True)
     k_data = [("座数", 44, 48, 52, "zasu"), ("客単価", 47, 51, 55, "tanka"), ("CVR", 45, 49, 53, "cvr"), ("客数", 46, 50, 54, "kyaku")]
@@ -237,6 +238,7 @@ if not df_raw.empty:
         k_rows += f'<tr><td>{m}</td><td>{k_n}</td><td>{t_s}</td><td>{fmt_v(av, av>=tv, u)}</td><td>{fmt_p(av/tv*100 if tv else 0, av>=tv)}</td><td>{fmt_p(av/lv*100 if lv else 0, av>=lv)}</td><td class="comment-cell">{reason}</td></tr>'
     st.markdown(f'<table class="base-table kpi-table"><tr><th>評</th><th>KPI</th><th>目標</th><th>実績</th><th>目標比</th><th>LY比</th><th>理由</th></tr>{k_rows}</table>', unsafe_allow_html=True)
 
+    # モール別MTD
     st.markdown(f"<h4>モール別MTD ({sel_week})</h4>", unsafe_allow_html=True)
     store_names_row = df_raw.iloc[9].fillna("").astype(str).str.strip()
     start_r = week_juchu_start_map[sel_week]
@@ -263,6 +265,7 @@ if not df_raw.empty:
         mall_report_rows += f'<tr><td>{d["name"]}</td><td>{d["count"]}</td><td>{d["juchu"]:,.0f}</td><td>{share:.1f}%</td></tr>'
     st.markdown(f'<table class="base-table"><tr><th>業態</th><th>ストア数</th><th>受注実績</th><th>売上シェア</th></tr>{mall_report_rows}</table>', unsafe_allow_html=True)
 
+    # 総評
     st.markdown("<h4>■総評 / 今週のアクション</h4>", unsafe_allow_html=True)
     st.markdown(f'<div class="summary-box">{str(current_txt["summary"])}</div>', unsafe_allow_html=True)
 else:
