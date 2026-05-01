@@ -11,8 +11,18 @@ import re
 # --- 1. ページ基本設定 ---
 st.set_page_config(page_title="ストアカルテ", layout="wide")
 
-# --- タイトル用ロゴ画像のURL ---
-LOGO_URL = "https://raw.githubusercontent.com/yone-lab/cart_log/main/j_logo.png"
+# --- タイトル用ロゴ画像の読み込み ---
+def get_logo():
+    # 自分のGitHubリポジトリに保存した logo.png を読み込む
+    logo_path = "logo.png" 
+    if os.path.exists(logo_path):
+        import base64
+        with open(logo_path, "rb") as f:
+            data = base64.b64encode(f.read()).decode()
+            return f"data:image/png;base64,{data}"
+    return None
+
+LOGO_DATA = get_logo()
 
 # --- 2. Googleスプレッドシート接続設定 ---
 @st.cache_resource
@@ -164,10 +174,11 @@ current_gid = DYNAMIC_MONTH_CONFIG[sel_month]
 df_raw = load_raw_data_auth(current_gid)
 
 if not df_raw.empty:
-    # --- ヘッダー：ロゴとタイトルを並べる ---
+# --- ヘッダー：ロゴとタイトルを並べる ---
+    header_logo = f'<img src="{LOGO_DATA}" style="height: 50px; width: auto; border-radius: 4px; object-fit: contain;">' if LOGO_DATA else ""
     st.markdown(f'''
     <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 20px;">
-        <img src="{LOGO_URL}" style="height: 50px; width: auto; border-radius: 4px; object-fit: contain;">
+        {header_logo}
         <h1 style="margin: 0; padding: 0; color: #3b484e; font-family: 'Meiryo', sans-serif; font-size: 2.2rem;">
             ストアカルテ {sel_year}年{sel_month}
         </h1>
