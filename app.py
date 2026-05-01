@@ -10,6 +10,9 @@ import os
 # --- 1. ページ基本設定 ---
 st.set_page_config(page_title="ストアカルテ", layout="wide")
 
+# --- タイトル用ロゴ画像のURL ---
+LOGO_URL = "https://raw.githubusercontent.com/yone-lab/cart_log/main/j_logo.png"
+
 # --- 2. Googleスプレッドシート接続設定 ---
 @st.cache_resource
 def get_gspread_auth():
@@ -24,18 +27,40 @@ def get_gspread_auth():
 
 auth_creds = get_gspread_auth()
 gc = gspread.authorize(auth_creds)
+
+# 読み取り元スプレッドシートID
+SPREADSHEET_ID = "1KlZevjH2IbsV0kWQZxw1QjHy3EmsjG9vTKGtvVVTni8"
+# 保存先シート（理由・総評用）
 SAVE_SHEET_ID = "1_8XbvigwRRIR-HxT5OEDlrKdpW8J9AjYYtjEk33LPIk"
 
-# --- 3. 引用元データ設定 ---
-SPREADSHEET_ID = "1KlZevjH2IbsV0kWQZxw1QjHy3EmsjG9vTKGtvVVTni8"
-MONTH_CONFIG = {
-    "2026": {
-        "3月": {"gid": "1502960872"},
-        "4月": {"gid": "166364340"}
-    }
-}
+# --- 3. 【新機能】シート自動検知ロジック ---
+@st.cache_data(ttl=60) # 1分ごとに最新のシート構成をチェック
+def get_dynamic_month_config():
+    """スプレッドシートから '26XX' 形式のシートを自動で取得する"""
+    try:
+        sh = gc.open_by_key(SPREADSHEET_ID)
+        worksheets = sh.worksheets()
+        config = {}
+        
+        for ws in worksheets:
+            title = ws.title.strip()
+            # 「26」から始まる4桁のシート（例：2603, 2604...）を対象にする
+            if title.startswith("26") and len(title) == 4:
+                month_num = int(title[2:]) # 後ろ2桁を数値化
+                month_name = f"{month_num}月"
+                config[month_name] = str(ws.id)
+        
+        # 月の順（3月, 4月...）に並び替え
+        sorted_keys = sorted(config.keys(), key=lambda x: int(x.replace("月","")))
+        return {k: config[k] for k in sorted_keys}
+    except Exception as e:
+        st.error(f"シート構成の取得に失敗しました: {e}")
+        return {"3月": "1502960872"} # 失敗時のバックアップ
 
-# 業態・ストア対応リスト (省略なし)
+# 自動取得した設定を反映
+DYNAMIC_MONTH_CONFIG = get_dynamic_month_config()
+
+# 業態・ストア対応リスト (変更なし)
 STORE_GROUPS = {
     "イオンモール": ["mozoワンダーシティ","THE OUTLETS HIROSHIMA","イオンモールKYOTO","イオンモール旭川西","イオンモール綾川","イオンモール伊丹昆陽","イオンモール羽生","イオンモール岡崎","イオンモール岡山","イオンモール各務原インター","イオンモール橿原","イオンモール宮崎","イオンモール京都桂川","イオンモール熊本","イオンモール広島府中","イオンモール高崎","イオンモール札幌発寒","イオンモール鹿児島","イオンモール春日部","イオンモール新潟亀田インター","イオンモール須坂","イオンモール水戸内原","イオンモール川口","イオンモール倉敷","イオンモール草津","イオンモール大高","イオンモール筑紫野","イオンモール長久手","イオンモール天童","イオンモール徳島","イオンモール苫小牧","イオンモール白山","イオンモール八幡東","イオンモール姫路大津","イオンモール浜松市野","イオンモール浜松志都呂","イオンモール福岡","イオンモール豊川","イオンモール幕張新都心","イオンモール名古屋茶屋","イオンモール名取","イオンモール鈴鹿","イオンモール和歌山","イオンレイクタウンmori"],
     "ららぽーと": ["ららぽーとEXPOCITY","ららぽーとTOKYO-BAY","ららぽーと愛知東郷","ららぽーと横浜","ららぽーと海老名","ららぽーと堺","ららぽーと沼津","ららぽーと湘南平塚","ららぽーと新三郷","ららぽーと富士見","ららぽーと福岡","ららぽーと名古屋みなとアクルス","ららぽーと門真","ららぽーと立川立飛","ららぽーと和泉"],
@@ -112,8 +137,9 @@ def save_to_sheet_live(search_key, data_list):
 
 # --- 5. サイドバー UI ---
 st.sidebar.header("📅 期間選択")
-sel_year = st.sidebar.selectbox("西暦", list(MONTH_CONFIG.keys()))
-sel_month = st.sidebar.selectbox("月", list(MONTH_CONFIG[sel_year].keys()))
+sel_year = st.sidebar.selectbox("西暦", ["2026"]) # 固定
+sel_month = st.sidebar.selectbox("月", list(DYNAMIC_MONTH_CONFIG.keys()), index=len(DYNAMIC_MONTH_CONFIG)-1)
+
 week_row_map = {"W1": 57, "W2": 58, "W3": 59, "W4": 60, "W5": 61, "W6": 62}
 week_juchu_start_map = {"W1": 12, "W2": 19, "W3": 26, "W4": 33, "W5": 40, "W6": 47}
 
@@ -135,26 +161,20 @@ with st.sidebar.form("input_form"):
             st.rerun()
 
 # --- 6. メイン表示 ---
-current_gid = MONTH_CONFIG[sel_year][sel_month]["gid"]
+current_gid = DYNAMIC_MONTH_CONFIG[sel_month]
 df_raw = load_raw_data_auth(current_gid)
 
 if not df_raw.empty:
-    # --- ヘッダー（ロゴ + タイトル） ---
-    # logo.png が app.py と同じフォルダにある前提
-    logo_file = "logo.png"
+    # --- ヘッダー：ロゴとタイトルの近接配置 ---
+    st.markdown(f'''
+    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 20px;">
+        <img src="{LOGO_URL}" style="height: 50px; width: auto; border-radius: 4px; object-fit: contain;">
+        <h1 style="margin: 0; padding: 0; color: #3b484e; font-family: 'Meiryo', sans-serif; font-size: 2.2rem;">
+            ストアカルテ {sel_year}年{sel_month}
+        </h1>
+    </div>
+    ''', unsafe_allow_html=True)
     
-    col_logo, col_title = st.columns([1, 10])
-    with col_logo:
-        if os.path.exists(logo_file):
-            st.image(logo_file, width=60)
-        else:
-            # 万が一ファイルがない場合は絵文字を表示してエラーを防ぐ
-            st.write("🏢")
-            
-    with col_title:
-        st.markdown(f'<h1 style="margin-top: -5px; color: #3b484e; font-family: \'Meiryo\', sans-serif;">ストアカルテ {sel_year}年{sel_month}</h1>', unsafe_allow_html=True)
-    
-    # --- 既存のデザインCSS ---
     st.markdown('''
     <style>
         html, body, [class*="css"] { font-family: "Meiryo", sans-serif; color: #3b484e; }
@@ -170,7 +190,6 @@ if not df_raw.empty:
     </style>
     ''', unsafe_allow_html=True)
 
-    # --- 以下、完璧と言っていただいた既存ロジック ---
     def fmt_v(val, cond, unit=""):
         cls = "reach" if cond else "unmet"
         t = f"{unit}{abs(val):,.0f}" if abs(val) >= 100 else f"{unit}{abs(val):.2f}"
@@ -198,7 +217,6 @@ if not df_raw.empty:
     </table>
     ''', unsafe_allow_html=True)
 
-    # Weeklyサマリー
     st.markdown("<h4>WEEKサマリー</h4>", unsafe_allow_html=True)
     w_rows = ""
     for w_n, r_i in week_row_map.items():
@@ -206,7 +224,6 @@ if not df_raw.empty:
         w_rows += f'<tr><td>{w_n}</td><td>{wa:,.0f}</td><td>{wt:,.0f}</td><td>{fmt_v(wa-wt, wa>=wt)}</td><td>{fmt_p(wa/wt*100 if wt else 0, wa>=wt)}</td><td>{wb:,.0f}</td><td>{fmt_v(wa-wb, wa>=wb)}</td><td>{fmt_p(wa/wb*100 if wb else 0, wa>=wb)}</td><td>{wl:,.0f}</td><td>{fmt_p(wa/wl*100 if wl else 0, wa>=wl)}</td></tr>'
     st.markdown(f'<table class="base-table"><tr><th>WEEK</th><th>受注額</th><th>目標</th><th>差額</th><th>達成率</th><th>予算</th><th>差額</th><th>達成率</th><th>前年実績</th><th>前年比</th></tr>{w_rows}</table>', unsafe_allow_html=True)
 
-    # KPI別
     current_week_row_idx = week_row_map[sel_week]
     st.markdown(f"<h4>KPI別 ({sel_week})</h4>", unsafe_allow_html=True)
     k_data = [("座数", 44, 48, 52, "zasu"), ("客単価", 47, 51, 55, "tanka"), ("CVR", 45, 49, 53, "cvr"), ("客数", 46, 50, 54, "kyaku")]
@@ -220,7 +237,6 @@ if not df_raw.empty:
         k_rows += f'<tr><td>{m}</td><td>{k_n}</td><td>{t_s}</td><td>{fmt_v(av, av>=tv, u)}</td><td>{fmt_p(av/tv*100 if tv else 0, av>=tv)}</td><td>{fmt_p(av/lv*100 if lv else 0, av>=lv)}</td><td class="comment-cell">{reason}</td></tr>'
     st.markdown(f'<table class="base-table kpi-table"><tr><th>評</th><th>KPI</th><th>目標</th><th>実績</th><th>目標比</th><th>LY比</th><th>理由</th></tr>{k_rows}</table>', unsafe_allow_html=True)
 
-    # モール別MTD
     st.markdown(f"<h4>モール別MTD ({sel_week})</h4>", unsafe_allow_html=True)
     store_names_row = df_raw.iloc[9].fillna("").astype(str).str.strip()
     start_r = week_juchu_start_map[sel_week]
@@ -247,7 +263,6 @@ if not df_raw.empty:
         mall_report_rows += f'<tr><td>{d["name"]}</td><td>{d["count"]}</td><td>{d["juchu"]:,.0f}</td><td>{share:.1f}%</td></tr>'
     st.markdown(f'<table class="base-table"><tr><th>業態</th><th>ストア数</th><th>受注実績</th><th>売上シェア</th></tr>{mall_report_rows}</table>', unsafe_allow_html=True)
 
-    # 総評
     st.markdown("<h4>■総評 / 今週のアクション</h4>", unsafe_allow_html=True)
     st.markdown(f'<div class="summary-box">{str(current_txt["summary"])}</div>', unsafe_allow_html=True)
 else:
