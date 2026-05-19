@@ -50,18 +50,24 @@ SAVE_SHEET_ID = "1_8XbvigwRRIR-HxT5OEDlrKdpW8J9AjYYtjEk33LPIk"
 TENPO_DATA_SP_ID = "1jJcIVOFTICCPr3YnoqkO-NxRzwTcvr_HfwgZunS0vdY"
 WEEKLY_DATA_SP_ID = "1_lEdGhSnGzEIgMFn2Q_qUbCVIL35MVHQBxW0M_2TcyI"
 
-# 固定の「【週次】予実管理表」のGID
-YODJITSU_GID = "1723932600"
-
-# --- 3. CSV形式での高速データ読み込みロジック ---
+# --- 3. 動的シート名判定とデータ読込ロジック ---
 @st.cache_data(ttl=5)
-def load_raw_data_auth(gid):
+def load_raw_data_by_sheet_name(sel_year_str, sel_month_str):
     try:
+        # 選択された年（例:"2026"-> "26"）と月（例:"5月"-> "05"）から「2605」を生成
+        year_suffix = str(sel_year_str)[2:]
+        month_num = str(sel_month_str).replace("月", "").zfill(2)
+        target_sheet_name = f"{year_suffix}{month_num}"
+        
+        sh = gc.open_by_key(SPREADSHEET_ID)
+        ws = sh.worksheet(target_sheet_name)
+        
         import google.auth.transport.requests
         request = google.auth.transport.requests.Request()
         auth_creds.refresh(request)
         token = auth_creds.token
-        export_url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid={gid}"
+        
+        export_url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid={ws.id}"
         headers = {"Authorization": f"Bearer {token}"}
         response = requests.get(export_url, headers=headers)
         if response.status_code == 200:
@@ -70,7 +76,7 @@ def load_raw_data_auth(gid):
     except:
         return pd.DataFrame()
 
-# 業態マスター（OPEN店舗のみ）とWeekly Dataの読み込み
+# 業態マスター（完全なOPEN店舗のみ）とWeekly Dataの読み込み
 @st.cache_data(ttl=5)
 def load_mall_mapping_and_weekly_data():
     try:
@@ -85,7 +91,7 @@ def load_mall_mapping_and_weekly_data():
                 op_cl_status = str(row[7]).strip()  # H列 (8列目) の OP/CL ステータス
                 gyotai = str(row[18]).strip()       # S列 (19列目) の 業態マッピング
                 
-                # 店舗名が有効かつ、H列が「OPEN」の店舗のみを抽出対象とする
+                # 「SKD-OPEN」などを徹底除外するため、"OPEN" と完全一致する場合のみ抽出
                 if store_name and "店舗名" not in store_name and op_cl_status == "OPEN":
                     mapping[store_name] = gyotai
                     
@@ -114,7 +120,6 @@ def fetch_sheet_text_live(search_key):
         search_key_clean = str(search_key).strip()
         for row in all_data:
             if row and str(row[0]).strip() == search_key_clean:
-                # 取得データの長さを保証
                 padded = row + [""] * (6 - len(row))
                 res["zasu"], res["tanka"], res["cvr"], res["kyaku"], res["summary"] = padded[1:6]
                 return res
@@ -160,14 +165,13 @@ st.sidebar.header("📅 期間選択")
 year_list = ["2026", "2027", "2028"]
 sel_year = st.sidebar.selectbox("年", year_list, index=0)
 
-# 月のリスト選択 (固定、または必要に応じて動的に変更可能)
 month_list = ["3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"]
 sel_month = st.sidebar.selectbox("月", month_list, index=2) # デフォルト5月
 
 week_row_map = {"W1": 57, "W2": 58, "W3": 59, "W4": 60, "W5": 61, "W6": 62}
 sel_week = st.sidebar.selectbox("週", list(week_row_map.keys()))
 
-# 保存・読込用のキーの完全一致化
+# 🌟 保存・読込用の一致キー作成 (テキスト・キャプチャ同期の不具合修正)
 current_key = f"{sel_year}-{sel_month}-{sel_week}"
 current_txt = fetch_sheet_text_live(current_key)
 
@@ -194,8 +198,8 @@ with st.sidebar.form("input_form"):
             st.rerun()
 
 # --- 6. メイン表示 ---
-# 固定の「【週次】予実管理表」シートからデータを取得
-df_raw = load_raw_data_auth(YODJITSU_GID)
+# 🌟 選択した年・月に応じた動的シート（「2605」など）からデータを呼び出し
+df_raw = load_raw_data_by_sheet_name(sel_year, sel_month)
 
 if not df_raw.empty:
     header_logo = f'<img src="{LOGO_DATA}" style="height: 50px; width: auto; border-radius: 4px; object-fit: contain;">' if LOGO_DATA else ""
@@ -218,7 +222,7 @@ if not df_raw.empty:
         cls = "reach" if cond else "unmet"
         return f'<span class="{cls}">{val:.1f}%</span>'
 
-    # All Stores 予実（【週次】予実管理表シートからダイレクトに集計）
+    # All Stores 予実（指定の月別シートから算出）
     act = sum([get_score(df_raw, i, 6) for i in range(12, 54)])
     tgt, bgt, ly = get_score(df_raw, 3, 7), get_score(df_raw, 3, 9), get_score(df_raw, 3, 11)
     mt, mb, ml = get_score(df_raw, 6, 7), get_score(df_raw, 6, 9), get_score(df_raw, 6, 11)
@@ -285,7 +289,7 @@ if not df_raw.empty:
         for r_idx in range(1, len(df_weekly)):
             st_name, kpi = str(df_weekly.iloc[r_idx, 1]).strip(), str(df_weekly.iloc[r_idx, 4]).strip()
             
-            # mall_mapping に含まれるのは「OPEN」店舗のみになっている
+            # mall_mapping に含まれるのは厳格に「OPEN」ステータスのみ
             if st_name in mall_mapping and "受注金額(税抜)" in kpi:
                 g = mall_mapping[st_name]
                 if g in report_data:
@@ -323,4 +327,4 @@ if not df_raw.empty:
     st.markdown("<h4>■総評 / 今週のアクション</h4>", unsafe_allow_html=True)
     st.markdown(f'<div class="summary-box">{str(current_txt["summary"])}</div>', unsafe_allow_html=True)
 else:
-    st.warning("数値データを読み込めませんでした。")
+    st.warning("指定された月のデータシート（例：2605）を読み込めませんでした。シート名を確認してください。")
