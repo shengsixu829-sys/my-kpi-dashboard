@@ -50,33 +50,10 @@ SAVE_SHEET_ID = "1_8XbvigwRRIR-HxT5OEDlrKdpW8J9AjYYtjEk33LPIk"
 TENPO_DATA_SP_ID = "1jJcIVOFTICCPr3YnoqkO-NxRzwTcvr_HfwgZunS0vdY"
 WEEKLY_DATA_SP_ID = "1_lEdGhSnGzEIgMFn2Q_qUbCVIL35MVHQBxW0M_2TcyI"
 
-# --- 3. シート自動検知ロジック ---
-@st.cache_data(ttl=0)
-def get_dynamic_month_config(sel_year_str):
-    try:
-        sh = gc.open_by_key(SPREADSHEET_ID)
-        worksheets = sh.worksheets()
-        config = {}
-        # 選択された西暦の下2桁（例: "2026" -> "26"）
-        year_suffix = str(sel_year_str)[2:]
-        
-        for ws in worksheets:
-            title = ws.title.strip()
-            if title.startswith(year_suffix):
-                nums = re.findall(r'\d+', title)
-                if nums and len(nums[0]) >= 4:
-                    month_num = int(nums[0][2:])
-                    month_name = f"{month_num}月"
-                    config[month_name] = str(ws.id)
-        
-        if config:
-            sorted_keys = sorted(config.keys(), key=lambda x: int(x.replace("月","")))
-            return {k: config[k] for k in sorted_keys}
-        else:
-            return {"3月": "1502960872", "4月": "166364340"}
-    except:
-        return {"3月": "1502960872", "4月": "166364340"}
+# 固定の「【週次】予実管理表」のGID
+YODJITSU_GID = "1723932600"
 
+# --- 3. CSV形式での高速データ読み込みロジック ---
 @st.cache_data(ttl=5)
 def load_raw_data_auth(gid):
     try:
@@ -93,19 +70,25 @@ def load_raw_data_auth(gid):
     except:
         return pd.DataFrame()
 
-# 業態マスターとWeekly Dataの読み込み
+# 業態マスター（OPEN店舗のみ）とWeekly Dataの読み込み
 @st.cache_data(ttl=5)
 def load_mall_mapping_and_weekly_data():
     try:
         sh_tenpo = gc.open_by_key(TENPO_DATA_SP_ID)
         ws_tenpo = sh_tenpo.worksheet("店舗データ")
         df_tenpo = pd.DataFrame(ws_tenpo.get_all_values())
+        
         mapping = {}
         for _, row in df_tenpo.iterrows():
             if len(row) > 18:
-                store_name, gyotai = str(row[2]).strip(), str(row[18]).strip()
-                if store_name and gyotai and "店舗名" not in store_name:
+                store_name = str(row[2]).strip()
+                op_cl_status = str(row[7]).strip()  # H列 (8列目) の OP/CL ステータス
+                gyotai = str(row[18]).strip()       # S列 (19列目) の 業態マッピング
+                
+                # 店舗名が有効かつ、H列が「OPEN」の店舗のみを抽出対象とする
+                if store_name and "店舗名" not in store_name and op_cl_status == "OPEN":
                     mapping[store_name] = gyotai
+                    
         sh_weekly = gc.open_by_key(WEEKLY_DATA_SP_ID)
         ws_weekly = sh_weekly.worksheet("Data")
         df_weekly = pd.DataFrame(ws_weekly.get_all_values())
@@ -121,7 +104,7 @@ def get_score(df, row, col):
         return pd.to_numeric(s_val, errors='coerce') if s_val else 0
     except: return 0
 
-# --- 4. テキストの読み書き ---
+# --- 4. テキスト・キャプチャの読み書き ---
 def fetch_sheet_text_live(search_key):
     try:
         sh = gc.open_by_key(SAVE_SHEET_ID)
@@ -131,7 +114,9 @@ def fetch_sheet_text_live(search_key):
         search_key_clean = str(search_key).strip()
         for row in all_data:
             if row and str(row[0]).strip() == search_key_clean:
-                res["zasu"], res["tanka"], res["cvr"], res["kyaku"], res["summary"] = row[1:6]
+                # 取得データの長さを保証
+                padded = row + [""] * (6 - len(row))
+                res["zasu"], res["tanka"], res["cvr"], res["kyaku"], res["summary"] = padded[1:6]
                 return res
         return res
     except:
@@ -165,7 +150,6 @@ def get_local_image_path(key, suffix):
     file_path = os.path.join(IMG_DIR, f"{key}_{suffix}.png")
     return file_path if os.path.exists(file_path) else None
 
-# 切り上げロジック関数
 def ceil_p(val):
     if val is None or pd.isna(val): return 0.0
     return math.ceil(val * 10) / 10.0
@@ -173,16 +157,17 @@ def ceil_p(val):
 # --- 5. サイドバー UI ---
 st.sidebar.header("📅 期間選択")
 
-# 🌟 西暦選択を追加（2026年から開始、今後増やすことが可能）
 year_list = ["2026", "2027", "2028"]
 sel_year = st.sidebar.selectbox("年", year_list, index=0)
 
-# 選択された年に応じて動的に月設定を取得
-DYNAMIC_MONTH_CONFIG = get_dynamic_month_config(sel_year)
+# 月のリスト選択 (固定、または必要に応じて動的に変更可能)
+month_list = ["3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"]
+sel_month = st.sidebar.selectbox("月", month_list, index=2) # デフォルト5月
 
-sel_month = st.sidebar.selectbox("月", list(DYNAMIC_MONTH_CONFIG.keys()), index=len(DYNAMIC_MONTH_CONFIG)-1)
 week_row_map = {"W1": 57, "W2": 58, "W3": 59, "W4": 60, "W5": 61, "W6": 62}
 sel_week = st.sidebar.selectbox("週", list(week_row_map.keys()))
+
+# 保存・読込用のキーの完全一致化
 current_key = f"{sel_year}-{sel_month}-{sel_week}"
 current_txt = fetch_sheet_text_live(current_key)
 
@@ -209,15 +194,14 @@ with st.sidebar.form("input_form"):
             st.rerun()
 
 # --- 6. メイン表示 ---
-current_gid = DYNAMIC_MONTH_CONFIG[sel_month]
-df_raw = load_raw_data_auth(current_gid)
+# 固定の「【週次】予実管理表」シートからデータを取得
+df_raw = load_raw_data_auth(YODJITSU_GID)
 
 if not df_raw.empty:
     header_logo = f'<img src="{LOGO_DATA}" style="height: 50px; width: auto; border-radius: 4px; object-fit: contain;">' if LOGO_DATA else ""
     st.markdown(f'''<div style="display: flex; align-items: center; gap: 10px; margin-bottom: 20px;">{header_logo}<h1 style="margin: 0; padding: 0; color: #3b484e; font-family: 'Meiryo', sans-serif; font-size: 2.2rem;">ストアカルテ {sel_year}年{sel_month}</h1></div>''', unsafe_allow_html=True)
     
     st.markdown('''<style>html, body, [class*="css"] { font-family: "Meiryo", sans-serif; color: #3b484e; }.reach { color: #58b5ca; font-weight: bold; }.unmet { color: #f3a359; font-weight: bold; }.base-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 0.85em; background-color: white; }.base-table th { background-color: rgba(88, 181, 202, 0.9); color: white; padding: 8px; border: 1px solid #eeece1; text-align: center; }.base-table td { border: 1px solid #eeece1; padding: 8px; text-align: center; }.kpi-table th { background-color: #3F484F !important; color: #eeece1 !important; }.comment-cell { text-align: left !important; background-color: #fdfcf7 !important; white-space: pre-wrap; vertical-align: middle; color: #3b484e; font-size: 0.95em; }.summary-box { background-color: #e1f2f7; border: 1px solid #58b5ca; padding: 15px; border-radius: 4px; white-space: pre-wrap; color: #3b484e; min-height: 80px; }h4 { color: #3b484e; border-bottom: 2px solid #fcde9c; padding-bottom: 5px; margin-top: 25px; }.img-label { font-size: 0.9em; font-weight: bold; color: #3b484e; margin-bottom: 5px; border-left: 3px solid #58b5ca; padding-left: 6px; }.empty-box { border: 1px dashed #cccccc; padding: 20px; border-radius: 4px; text-align: center; color: #888888; font-size: 0.8em; background-color: #fafafa; }
-    /* WEEKサマリーと統一されたモール別シェア表のスタイル */
     .mall-share-table { border: 1.5px solid rgba(88, 181, 202, 0.9); width: 100%; border-collapse: collapse; font-size: 0.82rem; }
     .mall-share-table th { background-color: rgba(88, 181, 202, 0.9); color: white; border: 1px solid #eeece1; padding: 6px 4px; font-weight: normal; }
     .mall-share-table td { border: 1px solid #eeece1; padding: 6px 4px; text-align: center; }
@@ -234,7 +218,7 @@ if not df_raw.empty:
         cls = "reach" if cond else "unmet"
         return f'<span class="{cls}">{val:.1f}%</span>'
 
-    # All Stores 予実
+    # All Stores 予実（【週次】予実管理表シートからダイレクトに集計）
     act = sum([get_score(df_raw, i, 6) for i in range(12, 54)])
     tgt, bgt, ly = get_score(df_raw, 3, 7), get_score(df_raw, 3, 9), get_score(df_raw, 3, 11)
     mt, mb, ml = get_score(df_raw, 6, 7), get_score(df_raw, 6, 9), get_score(df_raw, 6, 11)
@@ -273,31 +257,26 @@ if not df_raw.empty:
             if p: st.image(p, use_container_width=True)
             else: st.markdown('<div class="empty-box">未アップロード</div>', unsafe_allow_html=True)
 
-    # --- モール別シェア (過去10週推移・西暦連動ズレ修正＆カラー統一版) ---
+    # --- モール別シェア (過去10週推移・OPEN店舗のみ絞り込み版) ---
     st.markdown("<h4>📊 モール別シェア(過去10週推移)</h4>", unsafe_allow_html=True)
     mall_mapping, df_weekly = load_mall_mapping_and_weekly_data()
     if not df_weekly.empty and mall_mapping:
         header_row = [str(x).strip() for x in df_weekly.iloc[0].tolist()]
         
-        # 🌟 選択された西暦の下2桁（例: "2026" -> "26"）と、パディングした月（例: "5月" -> "05"）
         year_suffix = str(sel_year)[2:]
         month_digit_z = str(sel_month).replace("月", "").zfill(2)
         
-        # 🌟 指定された「年」と「月」の両方に完全一致する日付列だけを抽出（他年度の同月との混同を完全防止）
         matched_cols = []
         for i, h in enumerate(header_row):
-            # 例: "26/05/" や "2026-05-" などの日付表記パターンに対応
             if f"{year_suffix}/{month_digit_z}/" in h or f"{sel_year}-{month_digit_z}-" in h or h.startswith(f"{year_suffix}/{month_digit_z}/"):
                 matched_cols.append(i)
                 
-        # W1〜W6のセレクト順に基づいて正確な基準列（インデックス）を算定
         week_idx = ["W1","W2","W3","W4","W5","W6"].index(sel_week) if sel_week in ["W1","W2","W3","W4","W5","W6"] else 0
         if matched_cols:
             base_col_idx = matched_cols[min(week_idx, len(matched_cols)-1)]
         else:
             base_col_idx = len(header_row)-1
         
-        # 当週（一番左）から綺麗に過去10週分の列を配列化
         ten_weeks_indices = [base_col_idx - step for step in range(10) if base_col_idx - step >= 5]
         target_gyotais = ["全体", "路面店", "イオンモール", "ららぽーと", "アウトレット", "MARK IS", "アミュプラザ", "駅ビル", "ショッピングモール"]
         report_data = {g: {"count": 0, "weeks": {idx: 0 for idx in ten_weeks_indices}} for g in target_gyotais}
@@ -305,6 +284,8 @@ if not df_raw.empty:
         
         for r_idx in range(1, len(df_weekly)):
             st_name, kpi = str(df_weekly.iloc[r_idx, 1]).strip(), str(df_weekly.iloc[r_idx, 4]).strip()
+            
+            # mall_mapping に含まれるのは「OPEN」店舗のみになっている
             if st_name in mall_mapping and "受注金額(税抜)" in kpi:
                 g = mall_mapping[st_name]
                 if g in report_data:
@@ -317,7 +298,6 @@ if not df_raw.empty:
         
         for g in target_gyotais: report_data[g]["count"] = len(unique_stores[g])
         
-        # テーブルヘッダーの描画（WEEKサマリーのライトブルーと同一色）
         base_date = header_row[base_col_idx]
         header_html = f'<tr><th colspan="4" style="background-color:rgba(88, 181, 202, 0.9); font-weight:bold;">{base_date}</th>'
         for c in ten_weeks_indices[1:]: header_html += f'<th style="background-color:rgba(88, 181, 202, 0.9); font-weight:bold;">{header_row[c]}</th>'
