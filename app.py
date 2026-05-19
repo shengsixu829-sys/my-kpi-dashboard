@@ -205,12 +205,12 @@ if not df_raw.empty:
     st.markdown(f'''<div style="display: flex; align-items: center; gap: 10px; margin-bottom: 20px;">{header_logo}<h1 style="margin: 0; padding: 0; color: #3b484e; font-family: 'Meiryo', sans-serif; font-size: 2.2rem;">ストアカルテ {sel_year}年{sel_month}</h1></div>''', unsafe_allow_html=True)
     
     st.markdown('''<style>html, body, [class*="css"] { font-family: "Meiryo", sans-serif; color: #3b484e; }.reach { color: #58b5ca; font-weight: bold; }.unmet { color: #f3a359; font-weight: bold; }.base-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 0.85em; background-color: white; }.base-table th { background-color: rgba(88, 181, 202, 0.9); color: white; padding: 8px; border: 1px solid #eeece1; text-align: center; }.base-table td { border: 1px solid #eeece1; padding: 8px; text-align: center; }.kpi-table th { background-color: #3F484F !important; color: #eeece1 !important; }.comment-cell { text-align: left !important; background-color: #fdfcf7 !important; white-space: pre-wrap; vertical-align: middle; color: #3b484e; font-size: 0.95em; }.summary-box { background-color: #e1f2f7; border: 1px solid #58b5ca; padding: 15px; border-radius: 4px; white-space: pre-wrap; color: #3b484e; min-height: 80px; }h4 { color: #3b484e; border-bottom: 2px solid #fcde9c; padding-bottom: 5px; margin-top: 25px; }.img-label { font-size: 0.9em; font-weight: bold; color: #3b484e; margin-bottom: 5px; border-left: 3px solid #58b5ca; padding-left: 6px; }.empty-box { border: 1px dashed #cccccc; padding: 20px; border-radius: 4px; text-align: center; color: #888888; font-size: 0.8em; background-color: #fafafa; }
-    /* Excelスタイル・モール別シェア表 */
-    .mall-share-table { border: 1.5px solid #2F75B5; width: 100%; border-collapse: collapse; font-size: 0.82rem; }
-    .mall-share-table th { background-color: #5B9BD5; color: white; border: 1px solid #eeece1; padding: 4px; font-weight: normal; }
-    .mall-share-table td { border: 1px solid #ddd; padding: 4px; text-align: center; }
-    .mall-share-table tr.total-row { background-color: #D9E1F2; font-weight: bold; }
-    .mall-share-table tr.total-row td { border-bottom: 2px solid #2F75B5; }
+    /* WEEKサマリーと統一されたモール別シェア表のスタイル */
+    .mall-share-table { border: 1.5px solid rgba(88, 181, 202, 0.9); width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+    .mall-share-table th { background-color: rgba(88, 181, 202, 0.9); color: white; border: 1px solid #eeece1; padding: 6px 4px; font-weight: normal; }
+    .mall-share-table td { border: 1px solid #eeece1; padding: 6px 4px; text-align: center; }
+    .mall-share-table tr.total-row { background-color: #f0f2f6; font-weight: bold; }
+    .mall-share-table tr.total-row td { border-bottom: 2px solid rgba(88, 181, 202, 0.9); }
     </style>''', unsafe_allow_html=True)
 
     def fmt_v(val, cond, unit=""):
@@ -261,22 +261,27 @@ if not df_raw.empty:
             if p: st.image(p, use_container_width=True)
             else: st.markdown('<div class="empty-box">未アップロード</div>', unsafe_allow_html=True)
 
-    # --- モール別シェア (Excel再現版) ---
+    # --- モール別シェア (過去10週推移・ズレ修正＆カラー統一版) ---
     st.markdown("<h4>📊 モール別シェア(過去10週推移)</h4>", unsafe_allow_html=True)
     mall_mapping, df_weekly = load_mall_mapping_and_weekly_data()
     if not df_weekly.empty and mall_mapping:
         header_row = [str(x).strip() for x in df_weekly.iloc[0].tolist()]
         month_digit_z = str(sel_month).replace("月", "").zfill(2)
         
-        # 日付マッチングの強化版
+        # 🌟 日付判定ロジックの完全一致最適化
         matched_cols = []
         for i, h in enumerate(header_row):
-            if f"26/{month_digit_z}/" in h or f"2026-{month_digit_z}-" in h or h.startswith(f"{sel_month.replace('月','')}/") or f"/{month_digit_z}/" in h:
+            if f"26/{month_digit_z}/" in h or f"2026-{month_digit_z}-" in h or h.startswith(f"{sel_month.replace('月','')}/") or f"/{month_digit_z}/" in h or h.startswith(f"26/{month_digit_z}/"):
                 matched_cols.append(i)
                 
+        # W1〜W6のセレクト順に基づいて正確な基準列（インデックス）を算定
         week_idx = ["W1","W2","W3","W4","W5","W6"].index(sel_week) if sel_week in ["W1","W2","W3","W4","W5","W6"] else 0
-        base_col_idx = matched_cols[min(week_idx, len(matched_cols)-1)] if matched_cols else len(header_row)-1
+        if matched_cols:
+            base_col_idx = matched_cols[min(week_idx, len(matched_cols)-1)]
+        else:
+            base_col_idx = len(header_row)-1
         
+        # 当週（一番左）から綺麗に過去10週分の列を配列化
         ten_weeks_indices = [base_col_idx - step for step in range(10) if base_col_idx - step >= 5]
         target_gyotais = ["全体", "路面店", "イオンモール", "ららぽーと", "アウトレット", "MARK IS", "アミュプラザ", "駅ビル", "ショッピングモール"]
         report_data = {g: {"count": 0, "weeks": {idx: 0 for idx in ten_weeks_indices}} for g in target_gyotais}
@@ -296,10 +301,10 @@ if not df_raw.empty:
         
         for g in target_gyotais: report_data[g]["count"] = len(unique_stores[g])
         
-        # テーブル生成
+        # テーブルヘッダーの描画（WEEKサマリーのライトブルーと同一色）
         base_date = header_row[base_col_idx]
-        header_html = f'<tr><th colspan="4" style="background-color:#2F75B5; font-weight:bold;">{base_date}</th>'
-        for c in ten_weeks_indices[1:]: header_html += f'<th>{header_row[c]}</th>'
+        header_html = f'<tr><th colspan="4" style="background-color:rgba(88, 181, 202, 0.9); font-weight:bold;">{base_date}</th>'
+        for c in ten_weeks_indices[1:]: header_html += f'<th style="background-color:rgba(88, 181, 202, 0.9); font-weight:bold;">{header_row[c]}</th>'
         header_html += '</tr><tr><th>業態</th><th>ストア数</th><th>受注実績</th><th>売上シェア</th>'
         for _ in ten_weeks_indices[1:]: header_html += '<th>売上シェア</th>'
         header_html += '</tr>'
