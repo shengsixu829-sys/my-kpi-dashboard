@@ -54,7 +54,6 @@ WEEKLY_DATA_SP_ID = "1_lEdGhSnGzEIgMFn2Q_qUbCVIL35MVHQBxW0M_2TcyI"
 @st.cache_data(ttl=5)
 def load_raw_data_by_sheet_name(sel_year_str, sel_month_str):
     try:
-        # 選択された年（例:"2026"-> "26"）と月（例:"5月"-> "05"）から「2605」を生成
         year_suffix = str(sel_year_str)[2:]
         month_num = str(sel_month_str).replace("月", "").zfill(2)
         target_sheet_name = f"{year_suffix}{month_num}"
@@ -88,10 +87,10 @@ def load_mall_mapping_and_weekly_data():
         for _, row in df_tenpo.iterrows():
             if len(row) > 18:
                 store_name = str(row[2]).strip()
-                op_cl_status = str(row[7]).strip()  # H列 (8列目) の OP/CL ステータス
-                gyotai = str(row[18]).strip()       # S列 (19列目) の 業態マッピング
+                op_cl_status = str(row[7]).strip()
+                gyotai = str(row[18]).strip()
                 
-                # 「SKD-OPEN」などを徹底除外するため、"OPEN" と完全一致する場合のみ抽出
+                # 「SKD-OPEN」などを除外するため、"OPEN"との完全一致のみを許可
                 if store_name and "店舗名" not in store_name and op_cl_status == "OPEN":
                     mapping[store_name] = gyotai
                     
@@ -110,7 +109,7 @@ def get_score(df, row, col):
         return pd.to_numeric(s_val, errors='coerce') if s_val else 0
     except: return 0
 
-# --- 4. テキスト・キャプチャの読み書き ---
+# --- 4. テキストの読み書き ---
 def fetch_sheet_text_live(search_key):
     try:
         sh = gc.open_by_key(SAVE_SHEET_ID)
@@ -166,12 +165,11 @@ year_list = ["2026", "2027", "2028"]
 sel_year = st.sidebar.selectbox("年", year_list, index=0)
 
 month_list = ["3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"]
-sel_month = st.sidebar.selectbox("月", month_list, index=2) # デフォルト5月
+sel_month = st.sidebar.selectbox("月", month_list, index=2)
 
 week_row_map = {"W1": 57, "W2": 58, "W3": 59, "W4": 60, "W5": 61, "W6": 62}
 sel_week = st.sidebar.selectbox("週", list(week_row_map.keys()))
 
-# 🌟 保存・読込用の一致キー作成 (テキスト・キャプチャ同期の不具合修正)
 current_key = f"{sel_year}-{sel_month}-{sel_week}"
 current_txt = fetch_sheet_text_live(current_key)
 
@@ -198,19 +196,44 @@ with st.sidebar.form("input_form"):
             st.rerun()
 
 # --- 6. メイン表示 ---
-# 🌟 選択した年・月に応じた動的シート（「2605」など）からデータを呼び出し
 df_raw = load_raw_data_by_sheet_name(sel_year, sel_month)
 
 if not df_raw.empty:
     header_logo = f'<img src="{LOGO_DATA}" style="height: 50px; width: auto; border-radius: 4px; object-fit: contain;">' if LOGO_DATA else ""
     st.markdown(f'''<div style="display: flex; align-items: center; gap: 10px; margin-bottom: 20px;">{header_logo}<h1 style="margin: 0; padding: 0; color: #3b484e; font-family: 'Meiryo', sans-serif; font-size: 2.2rem;">ストアカルテ {sel_year}年{sel_month}</h1></div>''', unsafe_allow_html=True)
     
-    st.markdown('''<style>html, body, [class*="css"] { font-family: "Meiryo", sans-serif; color: #3b484e; }.reach { color: #58b5ca; font-weight: bold; }.unmet { color: #f3a359; font-weight: bold; }.base-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 0.85em; background-color: white; }.base-table th { background-color: rgba(88, 181, 202, 0.9); color: white; padding: 8px; border: 1px solid #eeece1; text-align: center; }.base-table td { border: 1px solid #eeece1; padding: 8px; text-align: center; }.kpi-table th { background-color: #3F484F !important; color: #eeece1 !important; }.comment-cell { text-align: left !important; background-color: #fdfcf7 !important; white-space: pre-wrap; vertical-align: middle; color: #3b484e; font-size: 0.95em; }.summary-box { background-color: #e1f2f7; border: 1px solid #58b5ca; padding: 15px; border-radius: 4px; white-space: pre-wrap; color: #3b484e; min-height: 80px; }h4 { color: #3b484e; border-bottom: 2px solid #fcde9c; padding-bottom: 5px; margin-top: 25px; }.img-label { font-size: 0.9em; font-weight: bold; color: #3b484e; margin-bottom: 5px; border-left: 3px solid #58b5ca; padding-left: 6px; }.empty-box { border: 1px dashed #cccccc; padding: 20px; border-radius: 4px; text-align: center; color: #888888; font-size: 0.8em; background-color: #fafafa; }
-    .mall-share-table { border: 1.5px solid rgba(88, 181, 202, 0.9); width: 100%; border-collapse: collapse; font-size: 0.82rem; }
-    .mall-share-table th { background-color: rgba(88, 181, 202, 0.9); color: white; border: 1px solid #eeece1; padding: 6px 4px; font-weight: normal; }
-    .mall-share-table td { border: 1px solid #eeece1; padding: 6px 4px; text-align: center; }
-    .mall-share-table tr.total-row { background-color: #f0f2f6; font-weight: bold; }
-    .mall-share-table tr.total-row td { border-bottom: 2px solid rgba(88, 181, 202, 0.9); }
+    # 🌟 デザインCSS（PDF化・印刷時の解像度・レイアウト崩れ対策を追加）
+    st.markdown('''<style>
+        html, body, [class*="css"] { font-family: "Meiryo", sans-serif; color: #3b484e; }
+        .reach { color: #58b5ca; font-weight: bold; }
+        .unmet { color: #f3a359; font-weight: bold; }
+        .base-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 0.85em; background-color: white; }
+        .base-table th { background-color: rgba(88, 181, 202, 0.9); color: white; padding: 8px; border: 1px solid #eeece1; text-align: center; }
+        .base-table td { border: 1px solid #eeece1; padding: 8px; text-align: center; }
+        .kpi-table th { background-color: #3F484F !important; color: #eeece1 !important; }
+        .comment-cell { text-align: left !important; background-color: #fdfcf7 !important; white-space: pre-wrap; vertical-align: middle; color: #3b484e; font-size: 0.95em; }
+        .summary-box { background-color: #e1f2f7; border: 1px solid #58b5ca; padding: 15px; border-radius: 4px; white-space: pre-wrap; color: #3b484e; min-height: 80px; }
+        h4 { color: #3b484e; border-bottom: 2px solid #fcde9c; padding-bottom: 5px; margin-top: 25px; }
+        .img-label { font-size: 0.9em; font-weight: bold; color: #3b484e; margin-bottom: 5px; border-left: 3px solid #58b5ca; padding-left: 6px; }
+        .empty-box { border: 1px dashed #cccccc; padding: 20px; border-radius: 4px; text-align: center; color: #888888; font-size: 0.8em; background-color: #fafafa; }
+        .mall-share-table { border: 1.5px solid rgba(88, 181, 202, 0.9); width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+        .mall-share-table th { background-color: rgba(88, 181, 202, 0.9); color: white; border: 1px solid #eeece1; padding: 6px 4px; font-weight: normal; }
+        .mall-share-table td { border: 1px solid #eeece1; padding: 6px 4px; text-align: center; }
+        .mall-share-table tr.total-row { background-color: #f0f2f6; font-weight: bold; }
+        .mall-share-table tr.total-row td { border-bottom: 2px solid rgba(88, 181, 202, 0.9); }
+        
+        /* 🌟 PDF書き出し・印刷時の画質＆レイアウト最適化CSS */
+        @media print {
+            body { width: 100% !important; margin: 0 !important; padding: 0 !important; }
+            [data-testid="stSidebar"] { display: none !important; } /* サイドバーは非表示 */
+            div.element-container:has(div.stHorizontalBlock) { display: block !important; }
+            /* 3列並びのブロックを印刷時だけ縦1列にして潰れを防ぐ */
+            [data-testid="stHorizontalBlock"] { display: flex !important; flex-direction: column !important; gap: 20px !important; }
+            [data-testid="stColumn"] { width: 100% !important; max-width: 100% !important; flex: none !important; page-break-inside: avoid !important; }
+            img { max-width: 100% !important; height: auto !important; object-fit: contain !important; image-rendering: -webkit-optimize-contrast !important; }
+            table { page-break-inside: avoid !important; }
+            h4 { page-break-after: avoid !important; }
+        }
     </style>''', unsafe_allow_html=True)
 
     def fmt_v(val, cond, unit=""):
@@ -222,12 +245,12 @@ if not df_raw.empty:
         cls = "reach" if cond else "unmet"
         return f'<span class="{cls}">{val:.1f}%</span>'
 
-    # All Stores 予実（指定の月別シートから算出）
+    # All Stores 予実
     act = sum([get_score(df_raw, i, 6) for i in range(12, 54)])
     tgt, bgt, ly = get_score(df_raw, 3, 7), get_score(df_raw, 3, 9), get_score(df_raw, 3, 11)
     mt, mb, ml = get_score(df_raw, 6, 7), get_score(df_raw, 6, 9), get_score(df_raw, 6, 11)
     st.markdown("<h4>All Stores ※FC excluded</h4>", unsafe_allow_html=True)
-    st.markdown(f'''<table class="base-table"><tr><th style="background-color:#606970;">月次受注額</th><td colspan="5" style="font-size:1.2em;font-weight:bold;">{act:,.0f}</td></tr><tr><th>月次目標</th><td>{tgt:,.0f}</td><th>月次予算</th><td>{bgt:,.0f}</td><th>前年受注額</th><td>{ly:,.0f}</td></tr><tr><th>目標比</th><td>{fmt_p(act/tgt*100 if tgt else 0, act>=tgt)}</td><th>予算比</th><td>{fmt_p(act/bgt*100 if bgt else 0, act>=bgt)}</td><th>前年比</th><td>{fmt_p(act/ly*100 if ly else 0, act>=ly)}</td></tr><tr><th>差額</th><td>{fmt_v(act-tgt, act>=tgt)}</td><th>差額</th><td>{fmt_v(act-bgt, act>=bgt)}</td><th>差額</th><td>{fmt_v(act-ly, act>=ly)}</td></tr><tr><th>MTD目標</th><td>{mt:,.0f}</td><th>MTD予算</th><td>{mb:,.0f}</td><th>MTD前年</th><td>{ml:,.0f}</td></tr><tr><th>MTD目標%</th><td>{fmt_p(act/mt*100 if mt else 0, act>=mt)}</td><th>MTD予算%</th><td>{fmt_p(act/mb*100 if mb else 0, act>=mb)}</td><th>MTD前年%</th><td>{fmt_p(act/ml*100 if ml else 0, act>=ml)}</td></tr><tr><th>MTD目標 差額</th><td>{fmt_v(act-mt, act>=mt)}</td><th>MTD予算 差額</th><td>{fmt_v(act-mb, act>=mb)}</td><th>MTD前年 差額</th><td>{fmt_v(act-ml, act>=ml)}</td></tr></table>''', unsafe_allow_html=True)
+    st.markdown(f'''<table class="base-table"><tr><th style="background-color:#606970;">月次受注額</th><td colspan="5" style="font-size:1.2em;font-weight:bold;">{act:,.0f}</td></tr><tr><th>月次目標</th><td>{tgt:,.0f}</td><th>月次予算</th><td>{bgt:,.0f}</td><th>前年受注額</th><td>{ly:,.0f}</td></tr><tr><th>目標比</th><td>{fmt_p(act/tgt*100 if tgt else 0, act>=tgt)}</td><th>予算比</th><td>{fmt_p(act/bgt*100 if bgt else 0, act>=bgt)}</td><th>前年比</th><td>{fmt_p(act/ly*100 if ly else 0, act>=ly)}</td></tr><tr><th>差額</th><td>{fmt_v(act-tgt, act>=tgt)}</td><th>差額</th><td>{fmt_v(act-bgt, act>=bgt)}</td><th>差額</th><td>{fmt_v(act-ly, act>=ly)}</td></tr><tr><th>MTD目標</th><td>{mt:,.0f}</td><th>MTD予算</th><td>{mb:,.0f}</td><th>MTD前年</th><td>{ml:,.0f}</td></tr><tr><th>MTD目標%</th><td>{fmt_p(act/mt*100 if mt else 0, act>=mt)}</td><th>MTD予算%</th><td>{fmt_p(act/mb*100 if mb else 0, act>=mb)}</td><th>MTD前年%</th><td>{fmt_p(act/ml*100 if ml else 0, act>=ml)}</td></tr><tr><th>MTD目標 差額</th><td>{fmt_v(act-mt, act>=mt)}</td><th>MTD予算 差額</th><td>{fmt_v(act-mb, decline:=act>=mb)}</td><th>MTD前年 差額</th><td>{fmt_v(act-ml, act>=ml)}</td></tr></table>''', unsafe_allow_html=True)
 
     # WEEKサマリー
     st.markdown("<h4>WEEKサマリー</h4>", unsafe_allow_html=True)
@@ -249,19 +272,24 @@ if not df_raw.empty:
         k_rows += f'<tr><td>{m}</td><td>{k_n}</td><td>{u}{tv:,.0f}</td><td>{fmt_v(av, av>=tv, u)}</td><td>{fmt_p(av/tv*100 if tv else 0, av>=tv)}</td><td>{fmt_p(av/lv*100 if lv else 0, av>=lv)}</td><td class="comment-cell">{reason}</td></tr>'
     st.markdown(f'<table class="base-table kpi-table"><tr><th>評</th><th>KPI</th><th>目標</th><th>実績</th><th>目標比</th><th>LY比</th><th>理由</th></tr>{k_rows}</table>', unsafe_allow_html=True)
 
-    # KPIグラフ
+    # KPIグラフ（高精度印刷対応レイアウト）
     st.markdown("<h4>📋 KPIグラフ(１ストア平均)</h4>", unsafe_allow_html=True)
-    row1, row2 = st.columns(3), st.columns(3)
+    row1_cols = st.columns(3)
+    row2_cols = st.columns(3)
     suffixes = [("juchu", "受注"), ("zasu", "座数"), ("tanka", "客単価"), ("cvr", "CVR"), ("kyaku", "客数"), ("sonota", "その他")]
+    
     for i, (s, label) in enumerate(suffixes):
-        col = row1[i] if i < 3 else row2[i-3]
+        col = row1_cols[i] if i < 3 else row2_cols[i-3]
         with col:
             st.markdown(f'<div class="img-label">{label}</div>', unsafe_allow_html=True)
             p = get_local_image_path(current_key, s)
-            if p: st.image(p, use_container_width=True)
-            else: st.markdown('<div class="empty-box">未アップロード</div>', unsafe_allow_html=True)
+            if p: 
+                # 高解像度・縮小処理に強いHTMLタグで描画
+                st.markdown(f'<img src="data:image/png;base64,{base64.b64encode(open(p, "rb").read()).decode()}" style="width:100%; max-width:100%; height:auto; object-fit:contain; border-radius:4px; border:1px solid #eeece1;">', unsafe_allow_html=True)
+            else: 
+                st.markdown('<div class="empty-box">未アップロード</div>', unsafe_allow_html=True)
 
-    # --- モール別シェア (過去10週推移・OPEN店舗のみ絞り込み版) ---
+    # --- モール別シェア ---
     st.markdown("<h4>📊 モール別シェア(過去10週推移)</h4>", unsafe_allow_html=True)
     mall_mapping, df_weekly = load_mall_mapping_and_weekly_data()
     if not df_weekly.empty and mall_mapping:
@@ -289,7 +317,6 @@ if not df_raw.empty:
         for r_idx in range(1, len(df_weekly)):
             st_name, kpi = str(df_weekly.iloc[r_idx, 1]).strip(), str(df_weekly.iloc[r_idx, 4]).strip()
             
-            # mall_mapping に含まれるのは厳格に「OPEN」ステータスのみ
             if st_name in mall_mapping and "受注金額(税抜)" in kpi:
                 g = mall_mapping[st_name]
                 if g in report_data:
