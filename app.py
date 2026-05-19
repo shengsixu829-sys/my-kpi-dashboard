@@ -160,7 +160,7 @@ def get_local_image_path(key, suffix):
     file_path = os.path.join(IMG_DIR, f"{key}_{suffix}.png")
     return file_path if os.path.exists(file_path) else None
 
-# 🌟 切り上げロジック関数
+# 切り上げロジック関数
 def ceil_p(val):
     if val is None or pd.isna(val): return 0.0
     return math.ceil(val * 10) / 10.0
@@ -222,7 +222,7 @@ if not df_raw.empty:
         cls = "reach" if cond else "unmet"
         return f'<span class="{cls}">{val:.1f}%</span>'
 
-    # All Stores 予実（既存）
+    # All Stores 予実
     act = sum([get_score(df_raw, i, 6) for i in range(12, 54)])
     tgt, bgt, ly = get_score(df_raw, 3, 7), get_score(df_raw, 3, 9), get_score(df_raw, 3, 11)
     mt, mb, ml = get_score(df_raw, 6, 7), get_score(df_raw, 6, 9), get_score(df_raw, 6, 11)
@@ -261,13 +261,19 @@ if not df_raw.empty:
             if p: st.image(p, use_container_width=True)
             else: st.markdown('<div class="empty-box">未アップロード</div>', unsafe_allow_html=True)
 
-    # --- 🌟 モール別シェア (Excel再現版) ---
+    # --- モール別シェア (Excel再現版) ---
     st.markdown("<h4>📊 モール別シェア(過去10週推移)</h4>", unsafe_allow_html=True)
     mall_mapping, df_weekly = load_mall_mapping_and_weekly_data()
     if not df_weekly.empty and mall_mapping:
         header_row = [str(x).strip() for x in df_weekly.iloc[0].tolist()]
         month_digit_z = str(sel_month).replace("月", "").zfill(2)
-        matched_cols = [i for i, h in enumerate(header_row) if f"26/{month_digit_z}/" in h or f"2026-{month_digit_z}-" in h or h.startswith(f"{sel_month.replace('月','')}/")]
+        
+        # 日付マッチングの強化版
+        matched_cols = []
+        for i, h in enumerate(header_row):
+            if f"26/{month_digit_z}/" in h or f"2026-{month_digit_z}-" in h or h.startswith(f"{sel_month.replace('月','')}/") or f"/{month_digit_z}/" in h:
+                matched_cols.append(i)
+                
         week_idx = ["W1","W2","W3","W4","W5","W6"].index(sel_week) if sel_week in ["W1","W2","W3","W4","W5","W6"] else 0
         base_col_idx = matched_cols[min(week_idx, len(matched_cols)-1)] if matched_cols else len(header_row)-1
         
@@ -290,7 +296,7 @@ if not df_raw.empty:
         
         for g in target_gyotais: report_data[g]["count"] = len(unique_stores[g])
         
-        # テーブル生成（Excelレイアウト再現）
+        # テーブル生成
         base_date = header_row[base_col_idx]
         header_html = f'<tr><th colspan="4" style="background-color:#2F75B5; font-weight:bold;">{base_date}</th>'
         for c in ten_weeks_indices[1:]: header_html += f'<th>{header_row[c]}</th>'
@@ -317,9 +323,3 @@ if not df_raw.empty:
     st.markdown(f'<div class="summary-box">{str(current_txt["summary"])}</div>', unsafe_allow_html=True)
 else:
     st.warning("数値データを読み込めませんでした。")
-
-いつものようにGitHubで `app.py` の中身を丸ごと書き換えて保存（Commit）してください。
-
-保存後、Streamlitアプリ画面右上のメニュー「︙」＞ **「Clear cache」** を押せば、Excelのレイアウトを忠実に再現した「モール別シェア」の表が表示され、数値も正しく切り上げられます。
-
-ついに理想の形が整いましたね。動作のご確認をお願いいたします！
