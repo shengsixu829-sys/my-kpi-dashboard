@@ -7,6 +7,7 @@ import io
 import requests
 import os
 import re
+import base64
 
 # --- 1. ページ基本設定 ---
 st.set_page_config(page_title="ストアカルテ", layout="wide")
@@ -15,7 +16,6 @@ st.set_page_config(page_title="ストアカルテ", layout="wide")
 def get_logo():
     logo_path = "logo.png" 
     if os.path.exists(logo_path):
-        import base64
         with open(logo_path, "rb") as f:
             data = base64.b64encode(f.read()).decode()
             return f"data:image/png;base64,{data}"
@@ -42,7 +42,7 @@ gc = gspread.authorize(auth_creds)
 SPREADSHEET_ID = "1KlZevjH2IbsV0kWQZxw1QjHy3EmsjG9vTKGtvVVTni8"
 SAVE_SHEET_ID = "1_8XbvigwRRIR-HxT5OEDlrKdpW8J9AjYYtjEk33LPIk"
 
-# 🌟 新規データソースID
+# 新規データソースID
 TENPO_DATA_SP_ID = "1jJcIVOFTICCPr3YnoqkO-NxRzwTcvr_HfwgZunS0vdY"  # 店舗データ
 WEEKLY_DATA_SP_ID = "1_lEdGhSnGzEIgMFn2Q_qUbCVIL35MVHQBxW0M_2TcyI" # KPI｜Weekly
 
@@ -85,8 +85,8 @@ def load_raw_data_auth(gid):
     except:
         return pd.DataFrame()
 
-# 🌟 新データソース読み込み関数
-@st.cache_data(ttl=10)
+# 新データソース読み込み関数
+@st.cache_data(ttl=5)
 def load_mall_mapping_and_weekly_data():
     try:
         # 1. 店舗データからマスターを取得 (C列:店舗名, S列:業態別)
@@ -94,7 +94,6 @@ def load_mall_mapping_and_weekly_data():
         ws_tenpo = sh_tenpo.worksheet("店舗データ")
         df_tenpo = pd.DataFrame(ws_tenpo.get_all_values())
         
-        # ヘッダー判定とマッピング作成
         mapping = {}
         for _, row in df_tenpo.iterrows():
             if len(row) > 18:
@@ -121,13 +120,16 @@ def get_score(df, row, col):
         return pd.to_numeric(s_val, errors='coerce') if s_val else 0
     except: return 0
 
-# --- 4. テキスト読み書き ---
+# --- 4. テキスト・画像データの読み書き ---
 def fetch_sheet_text_live(search_key):
     try:
         sh = gc.open_by_key(SAVE_SHEET_ID)
         ws = sh.worksheet("シート1")
         all_data = ws.get_all_values()
-        res = {"zasu": "", "tanka": "", "cvr": "", "kyaku": "", "summary": ""}
+        res = {
+            "zasu": "", "tanka": "", "cvr": "", "kyaku": "", "summary": "",
+            "img_juchu": "", "img_zasu": "", "img_tanka": "", "img_cvr": "", "img_kyaku": "", "img_sonota": ""
+        }
         search_key_clean = str(search_key).strip()
         for row in all_data:
             if row and str(row[0]).strip() == search_key_clean:
@@ -136,10 +138,20 @@ def fetch_sheet_text_live(search_key):
                 res["cvr"] = str(row[3]) if len(row) > 3 else ""
                 res["kyaku"] = row[4] if len(row) > 4 else ""
                 res["summary"] = row[5] if len(row) > 5 else ""
+                # 画像Base64データの読み込み (G列〜L列)
+                res["img_juchu"] = row[6] if len(row) > 6 else ""
+                res["img_zasu"] = row[7] if len(row) > 7 else ""
+                res["img_tanka"] = row[8] if len(row) > 8 else ""
+                res["img_cvr"] = row[9] if len(row) > 9 else ""
+                res["img_kyaku"] = row[10] if len(row) > 10 else ""
+                res["img_sonota"] = row[11] if len(row) > 11 else ""
                 return res
         return res
     except:
-        return {"zasu": "", "tanka": "", "cvr": "", "kyaku": "", "summary": ""}
+        return {
+            "zasu": "", "tanka": "", "cvr": "", "kyaku": "", "summary": "",
+            "img_juchu": "", "img_zasu": "", "img_tanka": "", "img_cvr": "", "img_kyaku": "", "img_sonota": ""
+        }
 
 def save_to_sheet_live(search_key, data_list):
     try:
@@ -152,13 +164,29 @@ def save_to_sheet_live(search_key, data_list):
             if row and str(row[0]).strip() == search_key_clean:
                 target_row = i + 1
                 break
+        
+        # A列(Key) + 理由・総評(5つ) + 画像Base64(6つ) = 全12列のデータ行を作成
         final_row = [search_key_clean] + [str(d) for d in data_list]
+        
+        # 12列に満たない場合のパディング
+        while len(final_row) < 12:
+            final_row.append("")
+            
         if target_row != -1:
-            ws.update(range_name=f"A{target_row}:F{target_row}", values=[final_row])
+            # 既存行の更新を確実に行うため、要素数を合わせて更新
+            ws.update(range_name=f"A{target_row}:L{target_row}", values=[final_row])
         else:
             ws.append_row(final_row)
         return True
-    except: return False
+    except Exception as e:
+        st.error(f"データの保存に失敗しました: {e}")
+        return False
+
+# ファイルオブジェクトをBase64文字列に変換する関数
+def file_to_base64(uploaded_file):
+    if uploaded_file is not None:
+        return base64.b64encode(uploaded_file.read()).decode()
+    return ""
 
 # --- 5. サイドバー UI ---
 st.sidebar.header("📅 期間選択")
@@ -170,6 +198,8 @@ week_juchu_start_map = {"W1": 12, "W2": 19, "W3": 26, "W4": 33, "W5": 40, "W6": 
 
 sel_week = st.sidebar.selectbox("週", list(week_row_map.keys()))
 current_key = f"{sel_year}-{sel_month}-{sel_week}"
+
+# スプレッドシートから現在選ばれている期間の「テキスト」と「画像」を読み込み
 current_txt = fetch_sheet_text_live(current_key)
 
 with st.sidebar.form("input_form"):
@@ -188,9 +218,23 @@ with st.sidebar.form("input_form"):
     img_sonota = st.file_uploader("6. その他のキャプチャ", type=["png", "jpg", "jpeg"])
     
     sum_text = st.text_area("■総評 / 今週のアクション", value=current_txt["summary"], height=150)
+    
     if st.form_submit_button("全ユーザーに共有保存"):
-        if save_to_sheet_live(current_key, [r_zasu, r_tanka, r_cvr, r_kyaku, sum_text]):
-            st.success("保存完了！")
+        # 新しくアップロードがあればBase64に変換、無ければ前回保存したデータを維持
+        b64_juchu = file_to_base64(img_juchu) if img_juchu else current_txt["img_juchu"]
+        b64_zasu = file_to_base64(img_zasu) if img_zasu else current_txt["img_zasu"]
+        b64_tanka = file_to_base64(img_tanka) if img_tanka else current_txt["img_tanka"]
+        b64_cvr = file_to_base64(img_cvr) if img_cvr else current_txt["img_cvr"]
+        b64_kyaku = file_to_base64(img_kyaku) if img_kyaku else current_txt["img_kyaku"]
+        b64_sonota = file_to_base64(img_sonota) if img_sonota else current_txt["img_sonota"]
+        
+        save_data = [
+            r_zasu, r_tanka, r_cvr, r_kyaku, sum_text,
+            b64_juchu, b64_zasu, b64_tanka, b64_cvr, b64_kyaku, b64_sonota
+        ]
+        
+        if save_to_sheet_live(current_key, save_data):
+            st.success("テキストおよび画像を保存しました！")
             st.cache_data.clear()
             st.rerun()
 
@@ -275,91 +319,89 @@ if not df_raw.empty:
         k_rows += f'<tr><td>{m}</td><td>{k_n}</td><td>{t_s}</td><td>{fmt_v(av, av>=tv, u)}</td><td>{fmt_p(av/tv*100 if tv else 0, av>=tv)}</td><td>{fmt_p(av/lv*100 if lv else 0, av>=lv)}</td><td class="comment-cell">{reason}</td></tr>'
     st.markdown(f'<table class="base-table kpi-table"><tr><th>評</th><th>KPI</th><th>目標</th><th>実績</th><th>目標比</th><th>LY比</th><th>理由</th></tr>{k_rows}</table>', unsafe_allow_html=True)
 
-    # KPIグラフ
+    # KPIグラフの表示ロジック（保存されたBase64文字列から読み込み）
     st.markdown("<h4>📋 KPIグラフ(１ストア平均)</h4>", unsafe_allow_html=True)
     row1_col1, row1_col2, row1_col3 = st.columns(3)
     with row1_col1:
         st.markdown('<div class="img-label">受注</div>', unsafe_allow_html=True)
-        if img_juchu is not None: st.image(img_juchu, use_container_width=True)
+        if current_txt["img_juchu"]: st.image(base64.b64decode(current_txt["img_juchu"]), use_container_width=True)
         else: st.markdown('<div class="empty-box">未アップロード</div>', unsafe_allow_html=True)
     with row1_col2:
         st.markdown('<div class="img-label">座数</div>', unsafe_allow_html=True)
-        if img_zasu is not None: st.image(img_zasu, use_container_width=True)
+        if current_txt["img_zasu"]: st.image(base64.b64decode(current_txt["img_zasu"]), use_container_width=True)
         else: st.markdown('<div class="empty-box">未アップロード</div>', unsafe_allow_html=True)
     with row1_col3:
         st.markdown('<div class="img-label">客単価</div>', unsafe_allow_html=True)
-        if img_tanka is not None: st.image(img_tanka, use_container_width=True)
+        if current_txt["img_tanka"]: st.image(base64.b64decode(current_txt["img_tanka"]), use_container_width=True)
         else: st.markdown('<div class="empty-box">未アップロード</div>', unsafe_allow_html=True)
             
     st.write("")
     row2_col1, row2_col2, row2_col3 = st.columns(3)
     with row2_col1:
         st.markdown('<div class="img-label">CVR</div>', unsafe_allow_html=True)
-        if img_cvr is not None: st.image(img_cvr, use_container_width=True)
+        if current_txt["img_cvr"]: st.image(base64.b64decode(current_txt["img_cvr"]), use_container_width=True)
         else: st.markdown('<div class="empty-box">未アップロード</div>', unsafe_allow_html=True)
     with row2_col2:
         st.markdown('<div class="img-label">客数</div>', unsafe_allow_html=True)
-        if img_kyaku is not None: st.image(img_kyaku, use_container_width=True)
+        if current_txt["img_kyaku"]: st.image(base64.b64decode(current_txt["img_kyaku"]), use_container_width=True)
         else: st.markdown('<div class="empty-box">未アップロード</div>', unsafe_allow_html=True)
     with row2_col3:
         st.markdown('<div class="img-label">その他</div>', unsafe_allow_html=True)
-        if img_sonota is not None: st.image(img_sonota, use_container_width=True)
+        if current_txt["img_sonota"]: st.image(base64.b64decode(current_txt["img_sonota"]), use_container_width=True)
         else: st.markdown('<div class="empty-box">未アップロード</div>', unsafe_allow_html=True)
 
-    # --- 🛠️ 業態別・過去10週マトリクス表の大改修パーツ ---
+    # --- 🛠️ 📊 モール別MTD (過去10週推移・クロスチェック版) ---
     st.markdown("<h4>📊 モール別MTD (過去10週推移)</h4>", unsafe_allow_html=True)
     
-    # 新データソースの読み込み
+    # 新データソース（KPI｜Weekly の Dataシート、および店舗データ）の読み込み
     mall_mapping, df_weekly = load_mall_mapping_and_weekly_data()
     
     if not df_weekly.empty and mall_mapping:
-        # スプレッドシート側の1行目（日付行）の整形
+        # 1行目の日付ヘッダーを配列化
         header_row = [str(x).strip() for x in df_weekly.iloc[0].tolist()]
         
-        # 月次・週次のセレクトボックス状態から基準日(ターゲット)を推測するロジック
-        # ※実際のアプリでの日付規則（例: 26/05/11）に合わせてターゲットとなる文字列を作成
+        # 選択された「月」に基づいてターゲット文字列を生成
         month_digit = str(sel_month).replace("月", "").zfill(2)
-        
-        # Dataシートの右側（最新日付側）から、選択された月に合う「月曜日の列」を自動サーチ
         target_date_str = f"26/{month_digit}/"
         matched_cols = [i for i, h in enumerate(header_row) if h.startswith(target_date_str)]
         
-        # 該当週(W1〜W6)に応じて列をピックアップ（無ければ最新の列を基準にする）
         week_idx = ["W1","W2","W3","W4","W5","W6"].index(sel_week) if sel_week in ["W1","W2","W3","W4","W5","W6"] else 0
         
         if matched_cols:
-            # 週の選択に合わせてインデックスを決定（範囲外防御付き）
             base_col_idx = matched_cols[min(week_idx, len(matched_cols)-1)]
         else:
-            # マッチしなければ一番右端（最新の日付列）をベースにする
             base_col_idx = len(header_row) - 1
             
         # 基準列から左側に向かって10週分の列インデックスを並べる
         ten_weeks_indices = []
         for step in range(10):
             target_idx = base_col_idx - step
-            if target_idx >= 4: # B列(ストア名)より右側であること
+            if target_idx >= 5:  # F列(最初の週)以降であることを担保
                 ten_weeks_indices.append(target_idx)
                 
-        # 表示対象の業態定義（ご指定の並び順）
+        # 表示対象の業態
         target_gyotais = ["全体", "路面店", "イオンモール", "ららぽーと", "アウトレット", "MARK IS", "アミュプラザ", "駅ビル", "ショッピングモール"]
         
-        # 集計用コンテナの用意
-        # { 業態名: { 'count': ストア数, 'weeks': { 列インデックス: 合計金額, ... } } }
+        # 集計用オブジェクトの初期化
         report_data = {g: {"count": 0, "weeks": {idx: 0 for idx in ten_weeks_indices}} for g in target_gyotais}
         
-        # B列(ストア名)をベースにスキャン・集計
+        # 重複なしでストア数をカウントするためのセット
+        unique_stores_by_gyotai = {g: set() for g in target_gyotais}
+        
+        # 🌟 B列＝店舗名、E列(4番目のインデックス)＝「受注金額(税抜)」のクロスチェック集計
         for r_idx in range(1, len(df_weekly)):
             store_name = str(df_weekly.iloc[r_idx, 1]).strip() # B列
+            kpi_name = str(df_weekly.iloc[r_idx, 4]).strip()   # E列 (受注金額(税抜))
             
-            if store_name in mall_mapping:
+            if store_name in mall_mapping and "受注金額(税抜)" in kpi_name:
                 gyotai = mall_mapping[store_name]
+                
                 if gyotai in report_data:
-                    # ストア数の加算（重複なしの1ストア分としてカウントするため基準週のみで判断）
-                    report_data[gyotai]["count"] += 1
-                    report_data["全体"]["count"] += 1
+                    # ユニークストア数の管理
+                    unique_stores_by_gyotai[gyotai].add(store_name)
+                    unique_stores_by_gyotai["全体"].add(store_name)
                     
-                    # 10週分の受注金額を累積
+                    # 過去10週分の数値を、該当する列インデックスから合算
                     for c_idx in ten_weeks_indices:
                         val_str = str(df_weekly.iloc[r_idx, c_idx]).replace(',','').replace('¥','').strip()
                         val = pd.to_numeric(val_str, errors='coerce') if val_str else 0
@@ -367,13 +409,17 @@ if not df_raw.empty:
                             report_data[gyotai]["weeks"][c_idx] += val
                             report_data["全体"]["weeks"][c_idx] += val
 
-        # テーブルのヘッダーHTMLの作成
+        # 各業態ごとのユニークストア実数を確定格納
+        for g in target_gyotais:
+            report_data[g]["count"] = len(unique_stores_by_gyotai[g])
+
+        # テーブルのヘッダーHTML作成
         header_html = "<tr><th>業態</th><th>ストア数</th><th>受注実績</th><th>売上シェア</th>"
         for c_idx in ten_weeks_indices:
             header_html += f"<th>{header_row[c_idx]}</th>"
         header_html += "</tr>"
         
-        # テーブルのデータ行の作成
+        # テーブルのデータ行HTML作成
         rows_html = ""
         base_week_col = ten_weeks_indices[0] if ten_weeks_indices else 0
         total_base_juchu = report_data["全体"]["weeks"].get(base_week_col, 0)
@@ -383,15 +429,14 @@ if not df_raw.empty:
             g_base_juchu = report_data[g]["weeks"].get(base_week_col, 0)
             
             # シェア率の算出
-            share = (g_base_juchu / total_base_juchu * 100) if total_juchu_all_stores else 0
+            share = (g_base_juchu / total_base_juchu * 100) if total_base_juchu else 0
             if g == "全体": share = 100.0
             
-            # 特徴的なスタイル属性
             style_attr = ' style="background-color:#f0f2f6; font-weight:bold;"' if g == "全体" else ""
             
             row_str = f"<tr{style_attr}><td>{g}</td><td>{g_count}</td><td>{g_base_juchu:,.0f}</td><td>{share:.2f}%</td>"
             
-            # 残りの過去9週分のシェア推移を横に並べる
+            # 過去10週分の各週シェア推移を横に展開
             for c_idx in ten_weeks_indices:
                 w_total = report_data["全体"]["weeks"].get(c_idx, 0)
                 w_juchu = report_data[g]["weeks"].get(c_idx, 0)
