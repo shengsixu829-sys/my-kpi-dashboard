@@ -90,7 +90,6 @@ def load_mall_mapping_and_weekly_data():
                 op_cl_status = str(row[7]).strip()
                 gyotai = str(row[18]).strip()
                 
-                # 「SKD-OPEN」などを除外するため、"OPEN"との完全一致のみを許可
                 if store_name and "店舗名" not in store_name and op_cl_status == "OPEN":
                     mapping[store_name] = gyotai
                     
@@ -199,10 +198,10 @@ with st.sidebar.form("input_form"):
 df_raw = load_raw_data_by_sheet_name(sel_year, sel_month)
 
 if not df_raw.empty:
-    header_logo = f'<img src="{LOGO_DATA}" style="height: 50px; width: auto; border-radius: 4px; object-fit: contain;">' if LOGO_DATA else ""
+    header_logo = f'<img src="{LOGO_DATA}" class="carte-logo" style="height: 50px; width: auto; border-radius: 4px; object-fit: contain;">' if LOGO_DATA else ""
     st.markdown(f'''<div style="display: flex; align-items: center; gap: 10px; margin-bottom: 20px;">{header_logo}<h1 style="margin: 0; padding: 0; color: #3b484e; font-family: 'Meiryo', sans-serif; font-size: 2.2rem;">ストアカルテ {sel_year}年{sel_month}</h1></div>''', unsafe_allow_html=True)
     
-    # 🌟 デザインCSS（PDF化・印刷時の解像度・レイアウト崩れ対策を追加）
+    # 🌟 デザインCSS（PDF化・印刷時の縮尺をブラウザ画面と完全に一致させるチューニング）
     st.markdown('''<style>
         html, body, [class*="css"] { font-family: "Meiryo", sans-serif; color: #3b484e; }
         .reach { color: #58b5ca; font-weight: bold; }
@@ -222,17 +221,27 @@ if not df_raw.empty:
         .mall-share-table tr.total-row { background-color: #f0f2f6; font-weight: bold; }
         .mall-share-table tr.total-row td { border-bottom: 2px solid rgba(88, 181, 202, 0.9); }
         
-        /* 🌟 PDF書き出し・印刷時の画質＆レイアウト最適化CSS */
+        /* 🌟 PDF印刷時のロゴ・キャプチャ巨大化バグ完全対策CSS */
         @media print {
-            body { width: 100% !important; margin: 0 !important; padding: 0 !important; }
-            [data-testid="stSidebar"] { display: none !important; } /* サイドバーは非表示 */
-            div.element-container:has(div.stHorizontalBlock) { display: block !important; }
-            /* 3列並びのブロックを印刷時だけ縦1列にして潰れを防ぐ */
-            [data-testid="stHorizontalBlock"] { display: flex !important; flex-direction: column !important; gap: 20px !important; }
-            [data-testid="stColumn"] { width: 100% !important; max-width: 100% !important; flex: none !important; page-break-inside: avoid !important; }
-            img { max-width: 100% !important; height: auto !important; object-fit: contain !important; image-rendering: -webkit-optimize-contrast !important; }
-            table { page-break-inside: avoid !important; }
-            h4 { page-break-after: avoid !important; }
+            body { width: 100% !important; margin: 0 !important; padding: 10mm !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+            [data-testid="stSidebar"] { display: none !important; }
+            
+            /* 一番上のロゴを小さく固定 */
+            .carte-logo { max-width: 120px !important; height: auto !important; object-fit: contain !important; }
+            
+            /* PDF化する際も横並び3列の構造を崩さずキープする */
+            div:has(> [data-testid="stHorizontalBlock"]) { display: block !important; }
+            [data-testid="stHorizontalBlock"] { display: flex !important; flex-direction: row !important; flex-wrap: nowrap !important; gap: 15px !important; width: 100% !important; }
+            [data-testid="stColumn"] { flex: 1 !important; width: 31% !important; min-width: 31% !important; max-width: 33% !important; display: block !important; }
+            
+            /* キャプチャが横幅いっぱいに引き伸ばされて潰れるのを防ぎ、画面と同じフォントバランスに固定 */
+            .capture-img-wrapper { width: 100% !important; max-width: 280px !important; margin: 0 auto !important; }
+            .capture-img-wrapper img { width: 100% !important; max-width: 100% !important; height: auto !important; object-fit: contain !important; image-rendering: -webkit-optimize-contrast !important; }
+            
+            table, .mall-share-table, .base-table { page-break-inside: avoid !important; font-size: 0.75rem !important; }
+            h1 { font-size: 1.6rem !important; }
+            h4 { font-size: 1.1rem !important; page-break-after: avoid !important; margin-top: 15px !important; }
+            .summary-box { font-size: 0.8rem !important; }
         }
     </style>''', unsafe_allow_html=True)
 
@@ -250,7 +259,7 @@ if not df_raw.empty:
     tgt, bgt, ly = get_score(df_raw, 3, 7), get_score(df_raw, 3, 9), get_score(df_raw, 3, 11)
     mt, mb, ml = get_score(df_raw, 6, 7), get_score(df_raw, 6, 9), get_score(df_raw, 6, 11)
     st.markdown("<h4>All Stores ※FC excluded</h4>", unsafe_allow_html=True)
-    st.markdown(f'''<table class="base-table"><tr><th style="background-color:#606970;">月次受注額</th><td colspan="5" style="font-size:1.2em;font-weight:bold;">{act:,.0f}</td></tr><tr><th>月次目標</th><td>{tgt:,.0f}</td><th>月次予算</th><td>{bgt:,.0f}</td><th>前年受注額</th><td>{ly:,.0f}</td></tr><tr><th>目標比</th><td>{fmt_p(act/tgt*100 if tgt else 0, act>=tgt)}</td><th>予算比</th><td>{fmt_p(act/bgt*100 if bgt else 0, act>=bgt)}</td><th>前年比</th><td>{fmt_p(act/ly*100 if ly else 0, act>=ly)}</td></tr><tr><th>差額</th><td>{fmt_v(act-tgt, act>=tgt)}</td><th>差額</th><td>{fmt_v(act-bgt, act>=bgt)}</td><th>差額</th><td>{fmt_v(act-ly, act>=ly)}</td></tr><tr><th>MTD目標</th><td>{mt:,.0f}</td><th>MTD予算</th><td>{mb:,.0f}</td><th>MTD前年</th><td>{ml:,.0f}</td></tr><tr><th>MTD目標%</th><td>{fmt_p(act/mt*100 if mt else 0, act>=mt)}</td><th>MTD予算%</th><td>{fmt_p(act/mb*100 if mb else 0, act>=mb)}</td><th>MTD前年%</th><td>{fmt_p(act/ml*100 if ml else 0, act>=ml)}</td></tr><tr><th>MTD目標 差額</th><td>{fmt_v(act-mt, act>=mt)}</td><th>MTD予算 差額</th><td>{fmt_v(act-mb, decline:=act>=mb)}</td><th>MTD前年 差額</th><td>{fmt_v(act-ml, act>=ml)}</td></tr></table>''', unsafe_allow_html=True)
+    st.markdown(f'''<table class="base-table"><tr><th style="background-color:#606970;">月次受注額</th><td colspan="5" style="font-size:1.2em;font-weight:bold;">{act:,.0f}</td></tr><tr><th>月次目標</th><td>{tgt:,.0f}</td><th>月次予算</th><td>{bgt:,.0f}</td><th>前年受注額</th><td>{ly:,.0f}</td></tr><tr><th>目標比</th><td>{fmt_p(act/tgt*100 if tgt else 0, act>=tgt)}</td><th>予算比</th><td>{fmt_p(act/bgt*100 if bgt else 0, act>=bgt)}</td><th>前年比</th><td>{fmt_p(act/ly*100 if ly else 0, act>=ly)}</td></tr><tr><th>差額</th><td>{fmt_v(act-tgt, act>=tgt)}</td><th>差額</th><td>{fmt_v(act-bgt, act>=bgt)}</td><th>差額</th><td>{fmt_v(act-ly, act>=ly)}</td></tr><tr><th>MTD目標</th><td>{mt:,.0f}</td><th>MTD予算</th><td>{mb:,.0f}</td><th>MTD前年</th><td>{ml:,.0f}</td></tr><tr><th>MTD目標%</th><td>{fmt_p(act/mt*100 if mt else 0, act>=mt)}</td><th>MTD予算%</th><td>{fmt_p(act/mb*100 if mb else 0, act>=mb)}</td><th>MTD前年%</th><td>{fmt_p(act/ml*100 if ml else 0, act>=ml)}</td></tr><tr><th>MTD目標 差額</th><td>{fmt_v(act-mt, act>=mt)}</td><th>MTD予算 差額</th><td>{fmt_v(act-mb, act>=mb)}</td><th>MTD前年 差額</th><td>{fmt_v(act-ml, act>=ml)}</td></tr></table>''', unsafe_allow_html=True)
 
     # WEEKサマリー
     st.markdown("<h4>WEEKサマリー</h4>", unsafe_allow_html=True)
@@ -270,9 +279,9 @@ if not df_raw.empty:
         u, m = ("¥" if k_n == "客単価" else ""), ("◯" if (av/tv if tv else 0) >= 1 else "△" if (av/tv if tv else 0) >= 0.9 else "✕")
         reason = str(current_txt[t_k]).replace("\n", "<br>")
         k_rows += f'<tr><td>{m}</td><td>{k_n}</td><td>{u}{tv:,.0f}</td><td>{fmt_v(av, av>=tv, u)}</td><td>{fmt_p(av/tv*100 if tv else 0, av>=tv)}</td><td>{fmt_p(av/lv*100 if lv else 0, av>=lv)}</td><td class="comment-cell">{reason}</td></tr>'
-    st.markdown(f'<table class="base-table kpi-table"><tr><th>評</th><th>KPI</th><th>目標</th><th>実績</th><th>目標比</th><th>LY比</th><th>理由</th></tr>{k_rows}</table>', unsafe_allow_html=True)
+    st.markdown(f'<div style="page-break-inside:avoid;"><table class="base-table kpi-table"><tr><th>評</th><th>KPI</th><th>目標</th><th>実績</th><th>目標比</th><th>LY比</th><th>理由</th></tr>{k_rows}</table></div>', unsafe_allow_html=True)
 
-    # KPIグラフ（高精度印刷対応レイアウト）
+    # --- KPIグラフ（画面サイズ再現型・高精度レイアウト） ---
     st.markdown("<h4>📋 KPIグラフ(１ストア平均)</h4>", unsafe_allow_html=True)
     row1_cols = st.columns(3)
     row2_cols = st.columns(3)
@@ -284,10 +293,10 @@ if not df_raw.empty:
             st.markdown(f'<div class="img-label">{label}</div>', unsafe_allow_html=True)
             p = get_local_image_path(current_key, s)
             if p: 
-                # 高解像度・縮小処理に強いHTMLタグで描画
-                st.markdown(f'<img src="data:image/png;base64,{base64.b64encode(open(p, "rb").read()).decode()}" style="width:100%; max-width:100%; height:auto; object-fit:contain; border-radius:4px; border:1px solid #eeece1;">', unsafe_allow_html=True)
+                # 🌟 ラッパーを噛ませ、PDF出力時も横3列・最大280pxのコンパクトな縮尺を維持する
+                st.markdown(f'<div class="capture-img-wrapper"><img src="data:image/png;base64,{base64.b64encode(open(p, "rb").read()).decode()}" style="width:100%; max-width:100%; height:auto; object-fit:contain; border-radius:4px; border:1px solid #eeece1;"></div>', unsafe_allow_html=True)
             else: 
-                st.markdown('<div class="empty-box">未アップロード</div>', unsafe_allow_html=True)
+                st.markdown('<div class="empty-box" style="max-width:280px; margin:0 auto;">未アップロード</div>', unsafe_allow_html=True)
 
     # --- モール別シェア ---
     st.markdown("<h4>📊 モール別シェア(過去10週推移)</h4>", unsafe_allow_html=True)
@@ -347,11 +356,11 @@ if not df_raw.empty:
                 w_share = ceil_p(w_act / w_tot * 100 if w_tot else 0) if g != "全体" else 100.0
                 row += f'<td>{w_share:.1f}%</td>'
             rows_html += row + '</tr>'
-        st.markdown(f'<table class="mall-share-table">{header_html}{rows_html}</table>', unsafe_allow_html=True)
+        st.markdown(f'<div style="page-break-inside:avoid;"><table class="mall-share-table">{header_html}{rows_html}</table></div>', unsafe_allow_html=True)
     else:
         st.info("データ取得中...")
 
     st.markdown("<h4>■総評 / 今週のアクション</h4>", unsafe_allow_html=True)
-    st.markdown(f'<div class="summary-box">{str(current_txt["summary"])}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="summary-box" style="page-break-inside:avoid;">{str(current_txt["summary"])}</div>', unsafe_allow_html=True)
 else:
     st.warning("指定された月のデータシート（例：2605）を読み込めませんでした。シート名を確認してください。")
