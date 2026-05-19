@@ -159,13 +159,14 @@ with st.sidebar.form("input_form"):
     r_cvr = st.text_area("CVRの理由", value=current_txt["cvr"])
     r_kyaku = st.text_area("客数の理由", value=current_txt["kyaku"])
     
-    # --- キャプチャアップロード用UI ---
+    # --- UI拡張: 6つ目の「その他」を追加 ---
     st.markdown("<p style='font-size:0.85em; font-weight:bold; margin-bottom:-5px;'>📸 キャプチャ（画像）の添付</p>", unsafe_allow_html=True)
     img_juchu = st.file_uploader("1. 受注額のキャプチャ", type=["png", "jpg", "jpeg"])
     img_zasu = st.file_uploader("2. 座数のキャプチャ", type=["png", "jpg", "jpeg"])
     img_tanka = st.file_uploader("3. 客単価のキャプチャ", type=["png", "jpg", "jpeg"])
     img_cvr = st.file_uploader("4. CVRのキャプチャ", type=["png", "jpg", "jpeg"])
     img_kyaku = st.file_uploader("5. 客数のキャプチャ", type=["png", "jpg", "jpeg"])
+    img_sonota = st.file_uploader("6. その他のキャプチャ", type=["png", "jpg", "jpeg"])
     
     sum_text = st.text_area("■総評 / 今週のアクション", value=current_txt["summary"], height=150)
     if st.form_submit_button("全ユーザーに共有保存"):
@@ -258,8 +259,8 @@ if not df_raw.empty:
         k_rows += f'<tr><td>{m}</td><td>{k_n}</td><td>{t_s}</td><td>{fmt_v(av, av>=tv, u)}</td><td>{fmt_p(av/tv*100 if tv else 0, av>=tv)}</td><td>{fmt_p(av/lv*100 if lv else 0, av>=lv)}</td><td class="comment-cell">{reason}</td></tr>'
     st.markdown(f'<table class="base-table kpi-table"><tr><th>評</th><th>KPI</th><th>目標</th><th>実績</th><th>目標比</th><th>LY比</th><th>理由</th></tr>{k_rows}</table>', unsafe_allow_html=True)
 
-    # --- 🛠️ 改良機能: 横並びグリッド（3列構成）でのキャプチャ表示欄 ---
-    st.markdown("<h4>📋 KPI別 詳細キャプチャ</h4>", unsafe_allow_html=True)
+    # --- ① タイトルを「KPIグラフ(１ストア平均)」に変更し、6列均等グリッドを生成 ---
+    st.markdown("<h4>📋 KPIグラフ(１ストア平均)</h4>", unsafe_allow_html=True)
     
     # 1段目: 受注、座数、客単価 (3列)
     row1_col1, row1_col2, row1_col3 = st.columns(3)
@@ -284,9 +285,9 @@ if not df_raw.empty:
         else:
             st.markdown('<div class="empty-box">未アップロード</div>', unsafe_allow_html=True)
             
-    st.write("") # スペース用
+    st.write("") # 縦の隙間調整用
     
-    # 2段目: CVR、客数、(空白) (3列)
+    # 2段目: CVR、客数、その他 (3列)
     row2_col1, row2_col2, row2_col3 = st.columns(3)
     with row2_col1:
         st.markdown('<div class="img-label">CVR</div>', unsafe_allow_html=True)
@@ -303,8 +304,12 @@ if not df_raw.empty:
             st.markdown('<div class="empty-box">未アップロード</div>', unsafe_allow_html=True)
             
     with row2_col3:
-        # 左右のバランスを保つための空スペース
-        st.write("")
+        # ② 「その他」のエリアを追加
+        st.markdown('<div class="img-label">その他</div>', unsafe_allow_html=True)
+        if img_sonota is not None:
+            st.image(img_sonota, use_container_width=True)
+        else:
+            st.markdown('<div class="empty-box">未アップロード</div>', unsafe_allow_html=True)
 
     # モール別MTD
     st.markdown(f"<h4>モール別MTD ({sel_week})</h4>", unsafe_allow_html=True)
