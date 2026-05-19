@@ -52,25 +52,30 @@ WEEKLY_DATA_SP_ID = "1_lEdGhSnGzEIgMFn2Q_qUbCVIL35MVHQBxW0M_2TcyI"
 
 # --- 3. シート自動検知ロジック ---
 @st.cache_data(ttl=0)
-def get_dynamic_month_config():
+def get_dynamic_month_config(sel_year_str):
     try:
         sh = gc.open_by_key(SPREADSHEET_ID)
         worksheets = sh.worksheets()
         config = {}
+        # 選択された西暦の下2桁（例: "2026" -> "26"）
+        year_suffix = str(sel_year_str)[2:]
+        
         for ws in worksheets:
             title = ws.title.strip()
-            if title.startswith("26"):
+            if title.startswith(year_suffix):
                 nums = re.findall(r'\d+', title)
                 if nums and len(nums[0]) >= 4:
                     month_num = int(nums[0][2:])
                     month_name = f"{month_num}月"
                     config[month_name] = str(ws.id)
-        sorted_keys = sorted(config.keys(), key=lambda x: int(x.replace("月","")))
-        return {k: config[k] for k in sorted_keys}
+        
+        if config:
+            sorted_keys = sorted(config.keys(), key=lambda x: int(x.replace("月","")))
+            return {k: config[k] for k in sorted_keys}
+        else:
+            return {"3月": "1502960872", "4月": "166364340"}
     except:
         return {"3月": "1502960872", "4月": "166364340"}
-
-DYNAMIC_MONTH_CONFIG = get_dynamic_month_config()
 
 @st.cache_data(ttl=5)
 def load_raw_data_auth(gid):
@@ -167,7 +172,14 @@ def ceil_p(val):
 
 # --- 5. サイドバー UI ---
 st.sidebar.header("📅 期間選択")
-sel_year = "2026"
+
+# 🌟 西暦選択を追加（2026年から開始、今後増やすことが可能）
+year_list = ["2026", "2027", "2028"]
+sel_year = st.sidebar.selectbox("年", year_list, index=0)
+
+# 選択された年に応じて動的に月設定を取得
+DYNAMIC_MONTH_CONFIG = get_dynamic_month_config(sel_year)
+
 sel_month = st.sidebar.selectbox("月", list(DYNAMIC_MONTH_CONFIG.keys()), index=len(DYNAMIC_MONTH_CONFIG)-1)
 week_row_map = {"W1": 57, "W2": 58, "W3": 59, "W4": 60, "W5": 61, "W6": 62}
 sel_week = st.sidebar.selectbox("週", list(week_row_map.keys()))
@@ -261,17 +273,21 @@ if not df_raw.empty:
             if p: st.image(p, use_container_width=True)
             else: st.markdown('<div class="empty-box">未アップロード</div>', unsafe_allow_html=True)
 
-    # --- モール別シェア (過去10週推移・ズレ修正＆カラー統一版) ---
+    # --- モール別シェア (過去10週推移・西暦連動ズレ修正＆カラー統一版) ---
     st.markdown("<h4>📊 モール別シェア(過去10週推移)</h4>", unsafe_allow_html=True)
     mall_mapping, df_weekly = load_mall_mapping_and_weekly_data()
     if not df_weekly.empty and mall_mapping:
         header_row = [str(x).strip() for x in df_weekly.iloc[0].tolist()]
+        
+        # 🌟 選択された西暦の下2桁（例: "2026" -> "26"）と、パディングした月（例: "5月" -> "05"）
+        year_suffix = str(sel_year)[2:]
         month_digit_z = str(sel_month).replace("月", "").zfill(2)
         
-        # 🌟 日付判定ロジックの完全一致最適化
+        # 🌟 指定された「年」と「月」の両方に完全一致する日付列だけを抽出（他年度の同月との混同を完全防止）
         matched_cols = []
         for i, h in enumerate(header_row):
-            if f"26/{month_digit_z}/" in h or f"2026-{month_digit_z}-" in h or h.startswith(f"{sel_month.replace('月','')}/") or f"/{month_digit_z}/" in h or h.startswith(f"26/{month_digit_z}/"):
+            # 例: "26/05/" や "2026-05-" などの日付表記パターンに対応
+            if f"{year_suffix}/{month_digit_z}/" in h or f"{sel_year}-{month_digit_z}-" in h or h.startswith(f"{year_suffix}/{month_digit_z}/"):
                 matched_cols.append(i)
                 
         # W1〜W6のセレクト順に基づいて正確な基準列（インデックス）を算定
