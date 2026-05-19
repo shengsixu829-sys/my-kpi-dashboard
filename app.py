@@ -13,7 +13,6 @@ st.set_page_config(page_title="ストアカルテ", layout="wide")
 
 # --- タイトル用ロゴ画像の読み込み ---
 def get_logo():
-    # 自分のGitHubリポジトリに保存した logo.png を読み込む
     logo_path = "logo.png" 
     if os.path.exists(logo_path):
         import base64
@@ -41,8 +40,8 @@ gc = gspread.authorize(auth_creds)
 SPREADSHEET_ID = "1KlZevjH2IbsV0kWQZxw1QjHy3EmsjG9vTKGtvVVTni8"
 SAVE_SHEET_ID = "1_8XbvigwRRIR-HxT5OEDlrKdpW8J9AjYYtjEk33LPIk"
 
-# --- 3. シート自動検知ロジック（改良版） ---
-@st.cache_data(ttl=0) # キャッシュ無効化で強制読み込み
+# --- 3. シート自動検知ロジック ---
+@st.cache_data(ttl=0)
 def get_dynamic_month_config():
     try:
         sh = gc.open_by_key(SPREADSHEET_ID)
@@ -51,16 +50,13 @@ def get_dynamic_month_config():
         
         for ws in worksheets:
             title = ws.title.strip()
-            # 「26」から始まるシートを対象にする
             if title.startswith("26"):
-                # 文字列の中から数字だけを抜き出す
                 nums = re.findall(r'\d+', title)
                 if nums and len(nums[0]) >= 4:
                     month_num = int(nums[0][2:])
                     month_name = f"{month_num}月"
                     config[month_name] = str(ws.id)
         
-        # 月の順に並び替え
         sorted_keys = sorted(config.keys(), key=lambda x: int(x.replace("月","")))
         return {k: config[k] for k in sorted_keys}
     except Exception as e:
@@ -69,7 +65,7 @@ def get_dynamic_month_config():
 
 DYNAMIC_MONTH_CONFIG = get_dynamic_month_config()
 
-# 業態・ストア対応リスト (省略なし)
+# 業態・ストア対応リスト
 STORE_GROUPS = {
     "イオンモール": ["mozoワンダーシティ","THE OUTLETS HIROSHIMA","イオンモールKYOTO","イオンモール旭川西","イオンモール綾川","イオンモール伊丹昆陽","イオンモール羽生","イオンモール岡崎","イオンモール岡山","イオンモール各務原インター","イオンモール橿原","イオンモール宮崎","イオンモール京都桂川","イオンモール熊本","イオンモール広島府中","イオンモール高崎","イオンモール札幌発寒","イオンモール鹿児島","イオンモール春日部","イオンモール新潟亀田インター","イオンモール須坂","イオンモール水戸内原","イオンモール川口","イオンモール倉敷","イオンモール草津","イオンモール大高","イオンモール筑紫野","イオンモール長久手","イオンモール天童","イオンモール徳島","イオンモール苫小牧","イオンモール白山","イオンモール八幡東","イオンモール姫路大津","イオンモール浜松市野","イオンモール浜松志都呂","イオンモール福岡","イオンモール豊川","イオンモール幕張新都心","イオンモール名古屋茶屋","イオンモール名取","イオンモール鈴鹿","イオンモール和歌山","イオンレイクタウンmori"],
     "ららぽーと": ["ららぽーとEXPOCITY","ららぽーとTOKYO-BAY","ららぽーと愛知東郷","ららぽーと横浜","ららぽーと海老名","ららぽーと堺","ららぽーと沼津","ららぽーと湘南平塚","ららぽーと新三郷","ららぽーと富士見","ららぽーと福岡","ららぽーと名古屋みなとアクルス","ららぽーと門真","ららぽーと立川立飛","ららぽーと和泉"],
@@ -183,7 +179,7 @@ current_gid = DYNAMIC_MONTH_CONFIG[sel_month]
 df_raw = load_raw_data_auth(current_gid)
 
 if not df_raw.empty:
-    # --- ヘッダー：ロゴとタイトルを並べる ---
+    # --- ヘッダー ---
     header_logo = f'<img src="{LOGO_DATA}" style="height: 50px; width: auto; border-radius: 4px; object-fit: contain;">' if LOGO_DATA else ""
     st.markdown(f'''
     <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 20px;">
@@ -207,10 +203,11 @@ if not df_raw.empty:
         .comment-cell { text-align: left !important; background-color: #fdfcf7 !important; white-space: pre-wrap; vertical-align: middle; color: #3b484e; font-size: 0.95em; }
         .summary-box { background-color: #e1f2f7; border: 1px solid #58b5ca; padding: 15px; border-radius: 4px; white-space: pre-wrap; color: #3b484e; min-height: 80px; }
         h4 { color: #3b484e; border-bottom: 2px solid #fcde9c; padding-bottom: 5px; margin-top: 25px; }
+        .img-label { font-size: 0.9em; font-weight: bold; color: #3b484e; margin-bottom: 5px; border-left: 3px solid #58b5ca; padding-left: 6px; }
+        .empty-box { border: 1px dashed #cccccc; padding: 20px; border-radius: 4px; text-align: center; color: #888888; font-size: 0.8em; background-color: #fafafa; }
     </style>
     ''', unsafe_allow_html=True)
 
-    # --- 数値フォーマット関数 ---
     def fmt_v(val, cond, unit=""):
         cls = "reach" if cond else "unmet"
         t = f"{unit}{abs(val):,.0f}" if abs(val) >= 100 else f"{unit}{abs(val):.2f}"
@@ -225,7 +222,7 @@ if not df_raw.empty:
     tgt, bgt, ly = get_score(df_raw, 3, 7), get_score(df_raw, 3, 9), get_score(df_raw, 3, 11)
     mt, mb, ml = get_score(df_raw, 6, 7), get_score(df_raw, 6, 9), get_score(df_raw, 6, 11)
 
-    # All Stores テーブル表示 (★タイポ修正完了行)
+    # All Stores テーブル表示
     st.markdown("<h4>All Stores ※FC excluded</h4>", unsafe_allow_html=True)
     st.markdown(f'''
     <table class="base-table">
@@ -261,44 +258,53 @@ if not df_raw.empty:
         k_rows += f'<tr><td>{m}</td><td>{k_n}</td><td>{t_s}</td><td>{fmt_v(av, av>=tv, u)}</td><td>{fmt_p(av/tv*100 if tv else 0, av>=tv)}</td><td>{fmt_p(av/lv*100 if lv else 0, av>=lv)}</td><td class="comment-cell">{reason}</td></tr>'
     st.markdown(f'<table class="base-table kpi-table"><tr><th>評</th><th>KPI</th><th>目標</th><th>実績</th><th>目標比</th><th>LY比</th><th>理由</th></tr>{k_rows}</table>', unsafe_allow_html=True)
 
-    # --- 項目ごとのキャプチャ表示欄 ---
-    st.markdown("<h4>📋 KPI別 詳細キャプチャ（分析画像）</h4>", unsafe_allow_html=True)
-    tab_juchu, tab_zasu, tab_tanka, tab_cvr, tab_kyaku = st.tabs(["📊 受注額", "🪑 座数", "💰 客単価", "📈 CVR", "👥 客数"])
+    # --- 🛠️ 改良機能: 横並びグリッド（3列構成）でのキャプチャ表示欄 ---
+    st.markdown("<h4>📋 KPI別 詳細キャプチャ</h4>", unsafe_allow_html=True)
     
-    with tab_juchu:
-        st.write("**■ 受注額**")
+    # 1段目: 受注、座数、客単価 (3列)
+    row1_col1, row1_col2, row1_col3 = st.columns(3)
+    with row1_col1:
+        st.markdown('<div class="img-label">受注</div>', unsafe_allow_html=True)
         if img_juchu is not None:
             st.image(img_juchu, use_container_width=True)
         else:
-            st.info("サイドバーから「1. 受注額のキャプチャ」をアップロードするとここに表示されます。")
+            st.markdown('<div class="empty-box">未アップロード</div>', unsafe_allow_html=True)
             
-    with tab_zasu:
-        st.write("**■ 座数**")
+    with row1_col2:
+        st.markdown('<div class="img-label">座数</div>', unsafe_allow_html=True)
         if img_zasu is not None:
             st.image(img_zasu, use_container_width=True)
         else:
-            st.info("サイドバーから「2. 座数のキャプチャ」をアップロードするとここに表示されます。")
+            st.markdown('<div class="empty-box">未アップロード</div>', unsafe_allow_html=True)
             
-    with tab_tanka:
-        st.write("**■ 客単価**")
+    with row1_col3:
+        st.markdown('<div class="img-label">客単価</div>', unsafe_allow_html=True)
         if img_tanka is not None:
             st.image(img_tanka, use_container_width=True)
         else:
-            st.info("サイドバーから「3. 客単価のキャプチャ」をアップロードするとここに表示されます。")
+            st.markdown('<div class="empty-box">未アップロード</div>', unsafe_allow_html=True)
             
-    with tab_cvr:
-        st.write("**■ CVR**")
+    st.write("") # スペース用
+    
+    # 2段目: CVR、客数、(空白) (3列)
+    row2_col1, row2_col2, row2_col3 = st.columns(3)
+    with row2_col1:
+        st.markdown('<div class="img-label">CVR</div>', unsafe_allow_html=True)
         if img_cvr is not None:
             st.image(img_cvr, use_container_width=True)
         else:
-            st.info("サイドバーから「4. CVRのキャプチャ」をアップロードするとここに表示されます。")
+            st.markdown('<div class="empty-box">未アップロード</div>', unsafe_allow_html=True)
             
-    with tab_kyaku:
-        st.write("**■ 客数**")
+    with row2_col2:
+        st.markdown('<div class="img-label">客数</div>', unsafe_allow_html=True)
         if img_kyaku is not None:
             st.image(img_kyaku, use_container_width=True)
         else:
-            st.info("サイドバーから「5. 客数のキャプチャ」をアップロードするとここに表示されます。")
+            st.markdown('<div class="empty-box">未アップロード</div>', unsafe_allow_html=True)
+            
+    with row2_col3:
+        # 左右のバランスを保つための空スペース
+        st.write("")
 
     # モール別MTD
     st.markdown(f"<h4>モール別MTD ({sel_week})</h4>", unsafe_allow_html=True)
