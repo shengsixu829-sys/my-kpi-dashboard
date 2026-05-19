@@ -90,7 +90,6 @@ def load_mall_mapping_and_weekly_data():
                 op_cl_status = str(row[7]).strip()
                 gyotai = str(row[18]).strip()
                 
-                # 「SKD-OPEN」などを彻底除外するため、"OPEN"と完全一致する場合のみ抽出
                 if store_name and "店舗名" not in store_name and op_cl_status == "OPEN":
                     mapping[store_name] = gyotai
                     
@@ -109,7 +108,7 @@ def get_score(df, row, col):
         return pd.to_numeric(s_val, errors='coerce') if s_val else 0
     except: return 0
 
-# --- 4. テキスト・キャプチャの読み書き ---
+# --- 4. テキストの読み書き ---
 def fetch_sheet_text_live(search_key):
     try:
         sh = gc.open_by_key(SAVE_SHEET_ID)
@@ -196,14 +195,13 @@ with st.sidebar.form("input_form"):
             st.rerun()
 
 # --- 6. メイン表示 ---
-# 🌟 指定の年・月に応じた動的シート（「2605」など）からデータを呼び出し
 df_raw = load_raw_data_by_sheet_name(sel_year, sel_month)
 
 if not df_raw.empty:
     header_logo = f'<img src="{LOGO_DATA}" class="carte-logo" style="height: 50px; width: auto; border-radius: 4px; object-fit: contain;">' if LOGO_DATA else ""
     st.markdown(f'''<div style="display: flex; align-items: center; gap: 10px; margin-bottom: 20px;">{header_logo}<h1 style="margin: 0; padding: 0; color: #3b484e; font-family: 'Meiryo', sans-serif; font-size: 2.2rem;">ストアカルテ {sel_year}年{sel_month}</h1></div>''', unsafe_allow_html=True)
     
-    # 🌟 デザインCSS（PDF化・印刷時のキャプチャ潰れバグ・ロゴ巨大化対策を追加）
+    # 🌟 デザインCSS（PDF化・印刷時にも画面通りの綺麗な横3列×2段を維持する完全版スタイル）
     st.markdown('''<style>
         html, body, [class*="css"] { font-family: "Meiryo", sans-serif; color: #3b484e; }
         .reach { color: #58b5ca; font-weight: bold; }
@@ -223,41 +221,29 @@ if not df_raw.empty:
         .mall-share-table tr.total-row { background-color: #f0f2f6; font-weight: bold; }
         .mall-share-table tr.total-row td { border-bottom: 2px solid rgba(88, 181, 202, 0.9); }
         
-        /* 🌟 PDF印刷時の画質・レイアウト最適化CSS (ロゴ、キャプチャ対応) */
+        /* 🌟 画面用のグリッドシステム (印刷時にも適用させるベース) */
+        .carte-capture-container { display: flex; flex-wrap: wrap; gap: 15px; width: 100%; margin-top: 10px; }
+        .carte-capture-box { width: calc(33.333% - 10px); min-width: 250px; background-color: #fff; box-sizing: border-box; }
+        .carte-img-frame { width: 100%; height: auto; object-fit: contain; border-radius: 4px; border: 1px solid #eeece1; display: block; }
+        
+        /* 🌟 PDF印刷・書き出し用特殊スタイル */
         @media print {
-            body { width: 100% !important; margin: 0 !important; padding: 0 !important; }
-            [data-testid="stSidebar"] { display: none !important; } /* サイドバーは非表示 */
+            body { width: 100% !important; margin: 0 !important; padding: 5mm !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+            [data-testid="stSidebar"] { display: none !important; }
             
-            /* 一番上のロゴを小さく固定 */
+            /* ロゴを小さく固定 */
             .carte-logo { max-width: 120px !important; height: auto !important; object-fit: contain !important; }
             
-            /* 🌟 キャプチャ画像を縦潰れ・横伸びから守る (A4縦でも横並びグリッドをキープ) */
-            [data-testid="stHorizontalBlock"] { 
-                display: flex !important; 
-                flex-direction: row !important; 
-                flex-wrap: nowrap !important; 
-                gap: 15px !important; 
-                justify-content: space-around !important;
-                page-break-inside: avoid !important;
-            }
-            [data-testid="stColumn"] { 
-                width: 32% !important; 
-                flex: 1 1 auto !important; 
-                max-width: 32% !important;
-                page-break-inside: avoid !important;
-            }
-            .carte-capture-img { 
-                width: 100% !important; 
-                max-width: 100% !important; 
-                height: auto !important; 
-                object-fit: contain !important; 
-                image-rendering: -webkit-optimize-contrast !important;
-                border-radius: 4px; 
-                border: 1px solid #eeece1;
-            }
+            /* 🌟 Streamlitの標準カラムを印刷時のみリセットし、自作CSSの美しい横3列を100%強制する */
+            div:has(> .carte-capture-container) { display: block !important; }
+            .carte-capture-container { display: flex !important; flex-direction: row !important; flex-wrap: wrap !important; gap: 12px !important; width: 100% !important; page-break-inside: avoid !important; }
+            .carte-capture-box { width: 32% !important; max-width: 32% !important; min-width: 32% !important; flex: 0 0 auto !important; page-break-inside: avoid !important; display: block !important; }
+            .carte-img-frame { width: 100% !important; height: auto !important; object-fit: contain !important; image-rendering: -webkit-optimize-contrast !important; }
             
-            table { page-break-inside: avoid !important; }
-            h4 { page-break-after: avoid !important; }
+            table, .mall-share-table, .base-table { page-break-inside: avoid !important; font-size: 0.75rem !important; }
+            h1 { font-size: 1.6rem !important; }
+            h4 { font-size: 1.1rem !important; page-break-after: avoid !important; margin-top: 15px !important; }
+            .summary-box { font-size: 0.8rem !important; }
         }
     </style>''', unsafe_allow_html=True)
 
@@ -297,22 +283,25 @@ if not df_raw.empty:
         k_rows += f'<tr><td>{m}</td><td>{k_n}</td><td>{u}{tv:,.0f}</td><td>{fmt_v(av, av>=tv, u)}</td><td>{fmt_p(av/tv*100 if tv else 0, av>=tv)}</td><td>{fmt_p(av/lv*100 if lv else 0, av>=lv)}</td><td class="comment-cell">{reason}</td></tr>'
     st.markdown(f'<table class="base-table kpi-table"><tr><th>評</th><th>KPI</th><th>目標</th><th>実績</th><th>目標比</th><th>LY比</th><th>理由</th></tr>{k_rows}</table>', unsafe_allow_html=True)
 
-    # 🌟 KPIグラフ（画面サイズ再現型・高精度レイアウト）
+    # 🌟 KPIグラフ（Streamlit標準カラムのバグを回避する、HTML完全制御版「横3列×2段」デザイン）
     st.markdown("<h4>📋 KPIグラフ(１ストア平均)</h4>", unsafe_allow_html=True)
-    row1_cols = st.columns(3)
-    row2_cols = st.columns(3)
+    
     suffixes = [("juchu", "受注"), ("zasu", "座数"), ("tanka", "客単価"), ("cvr", "CVR"), ("kyaku", "客数"), ("sonota", "その他")]
     
-    for i, (s, label) in enumerate(suffixes):
-        col = row1_cols[i] if i < 3 else row2_cols[i-3]
-        with col:
-            st.markdown(f'<div class="img-label">{label}</div>', unsafe_allow_html=True)
-            p = get_local_image_path(current_key, s)
-            if p: 
-                # 🌟 高解像度・縮小処理に強いHTMLタグで描画 (PDF潰れ対策用クラス付与)
-                st.markdown(f'<img src="data:image/png;base64,{base64.b64encode(open(p, "rb").read()).decode()}" class="carte-capture-img">', unsafe_allow_html=True)
-            else: 
-                st.markdown('<div class="empty-box">未アップロード</div>', unsafe_allow_html=True)
+    # HTMLの記述のみで「横3列×2段」を構築し、ブラウザの印刷エミュレーションによる画像の重なり・崩れを完璧に防止
+    grid_html = '<div class="carte-capture-container">'
+    for s, label in suffixes:
+        p = get_local_image_path(current_key, s)
+        grid_html += f'<div class="carte-capture-box"><div class="img-label">{label}</div>'
+        if p:
+            img_b64 = base64.b64encode(open(p, "rb").read()).decode()
+            grid_html += f'<img src="data:image/png;base64,{img_b64}" class="carte-img-frame">'
+        else:
+            grid_html += '<div class="empty-box">未アップロード</div>'
+        grid_html += '</div>'
+    grid_html += '</div>'
+    
+    st.markdown(grid_html, unsafe_allow_html=True)
 
     # --- モール別シェア ---
     st.markdown("<h4>📊 モール別シェア(過去10週推移)</h4>", unsafe_allow_html=True)
