@@ -88,7 +88,7 @@ def load_raw_data_auth(gid):
     except:
         return pd.DataFrame()
 
-# 🌟 新データソース読み込み関数
+# 新データソース読み込み関数
 @st.cache_data(ttl=5)
 def load_mall_mapping_and_weekly_data():
     try:
@@ -179,7 +179,6 @@ sel_year = "2026"
 sel_month = st.sidebar.selectbox("月", list(DYNAMIC_MONTH_CONFIG.keys()), index=len(DYNAMIC_MONTH_CONFIG)-1)
 
 week_row_map = {"W1": 57, "W2": 58, "W3": 59, "W4": 60, "W5": 61, "W6": 62}
-week_juchu_start_map = {"W1": 12, "W2": 19, "W3": 26, "W4": 33, "W5": 40, "W6": 47}
 
 sel_week = st.sidebar.selectbox("週", list(week_row_map.keys()))
 current_key = f"{sel_year}-{sel_month}-{sel_week}"
@@ -202,9 +201,7 @@ with st.sidebar.form("input_form"):
     
     sum_text = st.text_area("■総評 / 今週のアクション", value=current_txt["summary"], height=150)
     if st.form_submit_button("全ユーザーに共有保存"):
-        # テキストデータの保存
         if save_to_sheet_live(current_key, [r_zasu, r_tanka, r_cvr, r_kyaku, sum_text]):
-            # 画像データのローカルへの保存
             save_local_image(current_key, "juchu", img_juchu)
             save_local_image(current_key, "zasu", img_zasu)
             save_local_image(current_key, "tanka", img_tanka)
@@ -297,7 +294,7 @@ if not df_raw.empty:
         k_rows += f'<tr><td>{m}</td><td>{k_n}</td><td>{t_s}</td><td>{fmt_v(av, av>=tv, u)}</td><td>{fmt_p(av/tv*100 if tv else 0, av>=tv)}</td><td>{fmt_p(av/lv*100 if lv else 0, av>=lv)}</td><td class="comment-cell">{reason}</td></tr>'
     st.markdown(f'<table class="base-table kpi-table"><tr><th>評</th><th>KPI</th><th>目標</th><th>実績</th><th>目標比</th><th>LY比</th><th>理由</th></tr>{k_rows}</table>', unsafe_allow_html=True)
 
-    # --- KPIグラフ(期間選択での保存と自動呼び出し) ---
+    # --- KPIグラフ ---
     st.markdown("<h4>📋 KPIグラフ(１ストア平均)</h4>", unsafe_allow_html=True)
     
     p_juchu = get_local_image_path(current_key, "juchu")
@@ -336,32 +333,37 @@ if not df_raw.empty:
         if p_sonota: st.image(p_sonota, use_container_width=True)
         else: st.markdown('<div class="empty-box">未アップロード</div>', unsafe_allow_html=True)
 
-    # --- 📊 モール別MTD (過去10週推移・クロスチェック版) ---
+    # --- 📊 モール別MTD (過去10週推移・柔軟検索版) ---
     st.markdown("<h4>📊 モール別MTD (過去10週推移)</h4>", unsafe_allow_html=True)
     
-    # マスターデータの取得
     mall_mapping, df_weekly = load_mall_mapping_and_weekly_data()
     
     if not df_weekly.empty and mall_mapping:
         header_row = [str(x).strip() for x in df_weekly.iloc[0].tolist()]
         
-        # 選択された「月」から基準日を推測
-        month_digit = str(sel_month).replace("月", "").zfill(2)
-        target_date_str = f"26/{month_digit}/"
-        matched_cols = [i for i, h in enumerate(header_row) if h.startswith(target_date_str)]
+        # 🌟 【修正ポイント】どのような日付の形式（26/05, 2026-05, 5/）でもヒットする柔軟な判定ロジック
+        month_digit = str(sel_month).replace("月", "")
+        month_digit_z = month_digit.zfill(2)
+        
+        matched_cols = []
+        for i, h in enumerate(header_row):
+            # 例: "26/05/", "2026-05-", "/5/" 等を検出
+            if f"26/{month_digit_z}/" in h or f"2026-{month_digit_z}-" in h or h.startswith(f"{month_digit}/") or f"/{month_digit}/" in h:
+                matched_cols.append(i)
         
         week_idx = ["W1","W2","W3","W4","W5","W6"].index(sel_week) if sel_week in ["W1","W2","W3","W4","W5","W6"] else 0
         
+        # マッチする列が見つかった場合の処理。見つからなければ最終列から遡る
         if matched_cols:
             base_col_idx = matched_cols[min(week_idx, len(matched_cols)-1)]
         else:
             base_col_idx = len(header_row) - 1
             
-        # 過去10週分の列を配列化
+        # 過去10週分の列を安全に抽出
         ten_weeks_indices = []
         for step in range(10):
             target_idx = base_col_idx - step
-            if target_idx >= 5:  # F列以降
+            if target_idx >= 5:  # F列以降を対象にする
                 ten_weeks_indices.append(target_idx)
                 
         # 指定の業態順
