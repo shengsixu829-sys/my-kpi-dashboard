@@ -201,7 +201,7 @@ if not df_raw.empty:
     header_logo = f'<img src="{LOGO_DATA}" class="carte-logo" style="height: 50px; width: auto; border-radius: 4px; object-fit: contain;">' if LOGO_DATA else ""
     st.markdown(f'''<div style="display: flex; align-items: center; gap: 10px; margin-bottom: 20px;">{header_logo}<h1 style="margin: 0; padding: 0; color: #3b484e; font-family: 'Meiryo', sans-serif; font-size: 2.2rem;">ストアカルテ {sel_year}年{sel_month}</h1></div>''', unsafe_allow_html=True)
     
-    # 🌟 デザインCSS（PDF化・印刷時にも画面通りの綺麗な横3列×2段を維持する完全版スタイル）
+    # 🌟 デザインCSS（通常表示、およびPDF・印刷時の改ページ分断防御設定を完全網羅）
     st.markdown('''<style>
         html, body, [class*="css"] { font-family: "Meiryo", sans-serif; color: #3b484e; }
         .reach { color: #58b5ca; font-weight: bold; }
@@ -221,28 +221,31 @@ if not df_raw.empty:
         .mall-share-table tr.total-row { background-color: #f0f2f6; font-weight: bold; }
         .mall-share-table tr.total-row td { border-bottom: 2px solid rgba(88, 181, 202, 0.9); }
         
-        /* 🌟 画面用のグリッドシステム (印刷時にも適用させるベース) */
+        /* 通常表示用のグリッド構成 */
         .carte-capture-container { display: flex; flex-wrap: wrap; gap: 15px; width: 100%; margin-top: 10px; }
         .carte-capture-box { width: calc(33.333% - 10px); min-width: 250px; background-color: #fff; box-sizing: border-box; }
         .carte-img-frame { width: 100%; height: auto; object-fit: contain; border-radius: 4px; border: 1px solid #eeece1; display: block; }
         
-        /* 🌟 PDF印刷・書き出し用特殊スタイル */
+        /* 🌟 印刷・PDF書き出し専用の強力なレイアウト制御 */
         @media print {
             body { width: 100% !important; margin: 0 !important; padding: 5mm !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
             [data-testid="stSidebar"] { display: none !important; }
             
-            /* ロゴを小さく固定 */
+            /* タイトルロゴサイズ固定 */
             .carte-logo { max-width: 120px !important; height: auto !important; object-fit: contain !important; }
             
-            /* 🌟 Streamlitの標準カラムを印刷時のみリセットし、自作CSSの美しい横3列を100%強制する */
+            /* KPIグラフ横3列×2段を100%崩さない設定 */
             div:has(> .carte-capture-container) { display: block !important; }
             .carte-capture-container { display: flex !important; flex-direction: row !important; flex-wrap: wrap !important; gap: 12px !important; width: 100% !important; page-break-inside: avoid !important; }
             .carte-capture-box { width: 32% !important; max-width: 32% !important; min-width: 32% !important; flex: 0 0 auto !important; page-break-inside: avoid !important; display: block !important; }
             .carte-img-frame { width: 100% !important; height: auto !important; object-fit: contain !important; image-rendering: -webkit-optimize-contrast !important; }
             
-            table, .mall-share-table, .base-table { page-break-inside: avoid !important; font-size: 0.75rem !important; }
+            /* 🌟 要素の途中での不自然な改ページ（分断）を厳格にブロック */
+            .printable-block { page-break-inside: avoid !important; break-inside: avoid !important; display: block !important; width: 100% !important; }
+            table, .mall-share-table, .base-table { page-break-inside: avoid !important; break-inside: avoid !important; font-size: 0.75rem !important; }
+            
             h1 { font-size: 1.6rem !important; }
-            h4 { font-size: 1.1rem !important; page-break-after: avoid !important; margin-top: 15px !important; }
+            h4 { font-size: 1.1rem !important; page-break-after: avoid !important; margin-top: 18px !important; }
             .summary-box { font-size: 0.8rem !important; }
         }
     </style>''', unsafe_allow_html=True)
@@ -283,12 +286,10 @@ if not df_raw.empty:
         k_rows += f'<tr><td>{m}</td><td>{k_n}</td><td>{u}{tv:,.0f}</td><td>{fmt_v(av, av>=tv, u)}</td><td>{fmt_p(av/tv*100 if tv else 0, av>=tv)}</td><td>{fmt_p(av/lv*100 if lv else 0, av>=lv)}</td><td class="comment-cell">{reason}</td></tr>'
     st.markdown(f'<table class="base-table kpi-table"><tr><th>評</th><th>KPI</th><th>目標</th><th>実績</th><th>目標比</th><th>LY比</th><th>理由</th></tr>{k_rows}</table>', unsafe_allow_html=True)
 
-    # 🌟 KPIグラフ（Streamlit標準カラムのバグを回避する、HTML完全制御版「横3列×2段」デザイン）
+    # KPIグラフ
     st.markdown("<h4>📋 KPIグラフ(１ストア平均)</h4>", unsafe_allow_html=True)
-    
     suffixes = [("juchu", "受注"), ("zasu", "座数"), ("tanka", "客単価"), ("cvr", "CVR"), ("kyaku", "客数"), ("sonota", "その他")]
     
-    # HTMLの記述のみで「横3列×2段」を構築し、ブラウザの印刷エミュレーションによる画像の重なり・崩れを完璧に防止
     grid_html = '<div class="carte-capture-container">'
     for s, label in suffixes:
         p = get_local_image_path(current_key, s)
@@ -300,7 +301,6 @@ if not df_raw.empty:
             grid_html += '<div class="empty-box">未アップロード</div>'
         grid_html += '</div>'
     grid_html += '</div>'
-    
     st.markdown(grid_html, unsafe_allow_html=True)
 
     # --- モール別シェア ---
@@ -365,7 +365,12 @@ if not df_raw.empty:
     else:
         st.info("データ取得中...")
 
-    st.markdown("<h4>■総評 / 今週のアクション</h4>", unsafe_allow_html=True)
-    st.markdown(f'<div class="summary-box">{str(current_txt["summary"])}</div>', unsafe_allow_html=True)
+    # 🌟 「■総評 / 今週のアクション」の出力を改ページ回避用コンテナクラス（printable-block）で包む
+    st.markdown(f'''
+    <div class="printable-block">
+        <h4>■総評 / 今週のアクション</h4>
+        <div class="summary-box">{str(current_txt["summary"])}</div>
+    </div>
+    ''', unsafe_allow_html=True)
 else:
     st.warning("指定された月のデータシート（例：2605）を読み込めませんでした。シート名を確認してください。")
