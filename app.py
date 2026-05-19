@@ -6,9 +6,27 @@ from google.oauth2.service_account import Credentials
 import io
 import requests
 import os
+import re
+import base64
 
 # --- 1. ページ基本設定 ---
 st.set_page_config(page_title="ストアカルテ", layout="wide")
+
+# 画像保存用のフォルダを自動作成
+IMG_DIR = "saved_captures"
+if not os.path.exists(IMG_DIR):
+    os.makedirs(IMG_DIR)
+
+# --- タイトル用ロゴ画像の読み込み ---
+def get_logo():
+    logo_path = "logo.png" 
+    if os.path.exists(logo_path):
+        with open(logo_path, "rb") as f:
+            data = base64.b64encode(f.read()).decode()
+            return f"data:image/png;base64,{data}"
+    return None
+
+LOGO_DATA = get_logo()
 
 # --- 2. Googleスプレッドシート接続設定 ---
 @st.cache_resource
@@ -24,28 +42,35 @@ def get_gspread_auth():
 
 auth_creds = get_gspread_auth()
 gc = gspread.authorize(auth_creds)
-SAVE_SHEET_ID = "1_8XbvigwRRIR-HxT5OEDlrKdpW8J9AjYYtjEk33LPIk"
 
-# --- 3. 引用元データ設定 ---
+# データソースID
 SPREADSHEET_ID = "1KlZevjH2IbsV0kWQZxw1QjHy3EmsjG9vTKGtvVVTni8"
-MONTH_CONFIG = {
-    "2026": {
-        "3月": {"gid": "1502960872"},
-        "4月": {"gid": "166364340"}
-    }
-}
+SAVE_SHEET_ID = "1_8XbvigwRRIR-HxT5OEDlrKdpW8J9AjYYtjEk33LPIk"
+TENPO_DATA_SP_ID = "1jJcIVOFTICCPr3YnoqkO-NxRzwTcvr_HfwgZunS0vdY"  # 店舗データ
+WEEKLY_DATA_SP_ID = "1_lEdGhSnGzEIgMFn2Q_qUbCVIL35MVHQBxW0M_2TcyI" # KPI｜Weekly
 
-# 業態・ストア対応リスト (省略なし)
-STORE_GROUPS = {
-    "イオンモール": ["mozoワンダーシティ","THE OUTLETS HIROSHIMA","イオンモールKYOTO","イオンモール旭川西","イオンモール綾川","イオンモール伊丹昆陽","イオンモール羽生","イオンモール岡崎","イオンモール岡山","イオンモール各務原インター","イオンモール橿原","イオンモール宮崎","イオンモール京都桂川","イオンモール熊本","イオンモール広島府中","イオンモール高崎","イオンモール札幌発寒","イオンモール鹿児島","イオンモール春日部","イオンモール新潟亀田インター","イオンモール須坂","イオンモール水戸内原","イオンモール川口","イオンモール倉敷","イオンモール草津","イオンモール大高","イオンモール筑紫野","イオンモール長久手","イオンモール天童","イオンモール徳島","イオンモール苫小牧","イオンモール白山","イオンモール八幡東","イオンモール姫路大津","イオンモール浜松市野","イオンモール浜松志都呂","イオンモール福岡","イオンモール豊川","イオンモール幕張新都心","イオンモール名古屋茶屋","イオンモール名取","イオンモール鈴鹿","イオンモール和歌山","イオンレイクタウンmori"],
-    "ららぽーと": ["ららぽーとEXPOCITY","ららぽーとTOKYO-BAY","ららぽーと愛知東郷","ららぽーと横浜","ららぽーと海老名","ららぽーと堺","ららぽーと沼津","ららぽーと湘南平塚","ららぽーと新三郷","ららぽーと富士見","ららぽーと福岡","ららぽーと名古屋みなとアクルス","ららぽーと門真","ららぽーと立川立飛","ららぽーと和泉"],
-    "ショッピングモール": ["アクアシティお台場","あべのキューズモール","アリオ橋本","イーアスつくば","インターパークスタジアム","エミテラス所沢","エミフルMASAKI","おのだサンパーク","オリナス錦糸町","キャナルシティ博多","くずはモール","コクーンシティ","スマーク伊勢崎","セブンパークアリオ柏","トレッサ横浜","ならファミリー","なんばパークス","モラージュ菖浦","モレラ岐阜","ラソラ札幌","ララガーデン長町","浦添 PARCO CITY","新宿マルイ アネックス","神戸ハーバーランドumie","西宮ガーデンズ","大同生命札幌ビル miredo","二子玉川ライズ","有明ガーデン"],
-    "アウトレット": ["りんくうプレミアム・アウトレット","三井アウトレットパーク岡崎","酒々井プレミアム・アウトレット","木更津"],
-    "駅ビル": ["キラリナ京王吉祥寺","ルクア大阪","池袋サンシャインシティ"],
-    "路面店": ["御堂筋本町","渋谷宮下公園前","八千代","名古屋栄"],
-    "MARK IS": ["MARK IS みなとみらい","MARK IS 静岡","MARK IS 福岡ももち"],
-    "アミュプラザ": ["アミュプラザおおいた","アミュプラザくまもと","アミュプラザ長崎"]
-}
+# --- 3. シート自動検知ロジック ---
+@st.cache_data(ttl=0)
+def get_dynamic_month_config():
+    try:
+        sh = gc.open_by_key(SPREADSHEET_ID)
+        worksheets = sh.worksheets()
+        config = {}
+        for ws in worksheets:
+            title = ws.title.strip()
+            if title.startswith("26"):
+                nums = re.findall(r'\d+', title)
+                if nums and len(nums[0]) >= 4:
+                    month_num = int(nums[0][2:])
+                    month_name = f"{month_num}月"
+                    config[month_name] = str(ws.id)
+        sorted_keys = sorted(config.keys(), key=lambda x: int(x.replace("月","")))
+        return {k: config[k] for k in sorted_keys}
+    except Exception as e:
+        st.error(f"シート構成の取得に失敗しました: {e}")
+        return {"3月": "1502960872", "4月": "166364340"}
+
+DYNAMIC_MONTH_CONFIG = get_dynamic_month_config()
 
 @st.cache_data(ttl=5)
 def load_raw_data_auth(gid):
@@ -63,6 +88,33 @@ def load_raw_data_auth(gid):
     except:
         return pd.DataFrame()
 
+# 新データソース読み込み関数
+@st.cache_data(ttl=5)
+def load_mall_mapping_and_weekly_data():
+    try:
+        # 1. 店舗データからマスターを取得 (C列:店舗名, S列:業態別)
+        sh_tenpo = gc.open_by_key(TENPO_DATA_SP_ID)
+        ws_tenpo = sh_tenpo.worksheet("店舗データ")
+        df_tenpo = pd.DataFrame(ws_tenpo.get_all_values())
+        
+        mapping = {}
+        for _, row in df_tenpo.iterrows():
+            if len(row) > 18:
+                store_name = str(row[2]).strip() # C列
+                gyotai = str(row[18]).strip()    # S列
+                if store_name and gyotai and "店舗名" not in store_name:
+                    mapping[store_name] = gyotai
+
+        # 2. KPI｜Weekly の Dataシートを取得
+        sh_weekly = gc.open_by_key(WEEKLY_DATA_SP_ID)
+        ws_weekly = sh_weekly.worksheet("Data")
+        df_weekly = pd.DataFrame(ws_weekly.get_all_values())
+        
+        return mapping, df_weekly
+    except Exception as e:
+        st.error(f"新規データソースの読み込みに失敗しました: {e}")
+        return {}, pd.DataFrame()
+
 def get_score(df, row, col):
     try:
         val = df.iloc[row-1, col-1]
@@ -71,7 +123,7 @@ def get_score(df, row, col):
         return pd.to_numeric(s_val, errors='coerce') if s_val else 0
     except: return 0
 
-# --- 4. テキスト読み書き ---
+# --- 4. テキストの読み書き ---
 def fetch_sheet_text_live(search_key):
     try:
         sh = gc.open_by_key(SAVE_SHEET_ID)
@@ -110,51 +162,72 @@ def save_to_sheet_live(search_key, data_list):
         return True
     except: return False
 
+# ローカル環境への画像保存・取得用ヘルパー関数
+def save_local_image(key, suffix, uploaded_file):
+    if uploaded_file is not None:
+        file_path = os.path.join(IMG_DIR, f"{key}_{suffix}.png")
+        with open(file_path, "wb") as f:
+            f.write(uploaded_file.getbuffer())
+
+def get_local_image_path(key, suffix):
+    file_path = os.path.join(IMG_DIR, f"{key}_{suffix}.png")
+    return file_path if os.path.exists(file_path) else None
+
 # --- 5. サイドバー UI ---
 st.sidebar.header("📅 期間選択")
-sel_year = st.sidebar.selectbox("西暦", list(MONTH_CONFIG.keys()))
-sel_month = st.sidebar.selectbox("月", list(MONTH_CONFIG[sel_year].keys()))
+sel_year = "2026"
+sel_month = st.sidebar.selectbox("月", list(DYNAMIC_MONTH_CONFIG.keys()), index=len(DYNAMIC_MONTH_CONFIG)-1)
+
 week_row_map = {"W1": 57, "W2": 58, "W3": 59, "W4": 60, "W5": 61, "W6": 62}
-week_juchu_start_map = {"W1": 12, "W2": 19, "W3": 26, "W4": 33, "W5": 40, "W6": 47}
 
 sel_week = st.sidebar.selectbox("週", list(week_row_map.keys()))
 current_key = f"{sel_year}-{sel_month}-{sel_week}"
 current_txt = fetch_sheet_text_live(current_key)
 
 with st.sidebar.form("input_form"):
-    st.info(f"📍 読込中キー: {current_key}")
+    st.info(f"📍 読込中キー: {current_key}" )
     r_zasu = st.text_area("座数の理由", value=current_txt["zasu"])
     r_tanka = st.text_area("客単価の理由", value=current_txt["tanka"])
     r_cvr = st.text_area("CVRの理由", value=current_txt["cvr"])
     r_kyaku = st.text_area("客数の理由", value=current_txt["kyaku"])
+    
+    st.markdown("<p style='font-size:0.85em; font-weight:bold; margin-bottom:-5px;'>📸 キャプチャ（画像）の添付</p>", unsafe_allow_html=True)
+    img_juchu = st.file_uploader("1. 受注額のキャプチャ", type=["png", "jpg", "jpeg"])
+    img_zasu = st.file_uploader("2. 座数のキャプチャ", type=["png", "jpg", "jpeg"])
+    img_tanka = st.file_uploader("3. 客単価のキャプチャ", type=["png", "jpg", "jpeg"])
+    img_cvr = st.file_uploader("4. CVRのキャプチャ", type=["png", "jpg", "jpeg"])
+    img_kyaku = st.file_uploader("5. 客数のキャプチャ", type=["png", "jpg", "jpeg"])
+    img_sonota = st.file_uploader("6. その他のキャプチャ", type=["png", "jpg", "jpeg"])
+    
     sum_text = st.text_area("■総評 / 今週のアクション", value=current_txt["summary"], height=150)
     if st.form_submit_button("全ユーザーに共有保存"):
         if save_to_sheet_live(current_key, [r_zasu, r_tanka, r_cvr, r_kyaku, sum_text]):
-            st.success("保存完了！")
+            save_local_image(current_key, "juchu", img_juchu)
+            save_local_image(current_key, "zasu", img_zasu)
+            save_local_image(current_key, "tanka", img_tanka)
+            save_local_image(current_key, "cvr", img_cvr)
+            save_local_image(current_key, "kyaku", img_kyaku)
+            save_local_image(current_key, "sonota", img_sonota)
+            
+            st.success("テキストおよび画像を保存しました！")
             st.cache_data.clear()
             st.rerun()
 
 # --- 6. メイン表示 ---
-current_gid = MONTH_CONFIG[sel_year][sel_month]["gid"]
+current_gid = DYNAMIC_MONTH_CONFIG[sel_month]
 df_raw = load_raw_data_auth(current_gid)
 
 if not df_raw.empty:
-    # --- ヘッダー（ロゴ + タイトル） ---
-    # logo.png が app.py と同じフォルダにある前提
-    logo_file = "logo.png"
+    header_logo = f'<img src="{LOGO_DATA}" style="height: 50px; width: auto; border-radius: 4px; object-fit: contain;">' if LOGO_DATA else ""
+    st.markdown(f'''
+    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 20px;">
+        {header_logo}
+        <h1 style="margin: 0; padding: 0; color: #3b484e; font-family: 'Meiryo', sans-serif; font-size: 2.2rem;">
+            ストアカルテ {sel_year}年{sel_month}
+        </h1>
+    </div>
+    ''', unsafe_allow_html=True)
     
-    col_logo, col_title = st.columns([1, 10])
-    with col_logo:
-        if os.path.exists(logo_file):
-            st.image(logo_file, width=60)
-        else:
-            # 万が一ファイルがない場合は絵文字を表示してエラーを防ぐ
-            st.write("🏢")
-            
-    with col_title:
-        st.markdown(f'<h1 style="margin-top: -5px; color: #3b484e; font-family: \'Meiryo\', sans-serif;">ストアカルテ {sel_year}年{sel_month}</h1>', unsafe_allow_html=True)
-    
-    # --- 既存のデザインCSS ---
     st.markdown('''
     <style>
         html, body, [class*="css"] { font-family: "Meiryo", sans-serif; color: #3b484e; }
@@ -167,10 +240,11 @@ if not df_raw.empty:
         .comment-cell { text-align: left !important; background-color: #fdfcf7 !important; white-space: pre-wrap; vertical-align: middle; color: #3b484e; font-size: 0.95em; }
         .summary-box { background-color: #e1f2f7; border: 1px solid #58b5ca; padding: 15px; border-radius: 4px; white-space: pre-wrap; color: #3b484e; min-height: 80px; }
         h4 { color: #3b484e; border-bottom: 2px solid #fcde9c; padding-bottom: 5px; margin-top: 25px; }
+        .img-label { font-size: 0.9em; font-weight: bold; color: #3b484e; margin-bottom: 5px; border-left: 3px solid #58b5ca; padding-left: 6px; }
+        .empty-box { border: 1px dashed #cccccc; padding: 20px; border-radius: 4px; text-align: center; color: #888888; font-size: 0.8em; background-color: #fafafa; }
     </style>
     ''', unsafe_allow_html=True)
 
-    # --- 以下、完璧と言っていただいた既存ロジック ---
     def fmt_v(val, cond, unit=""):
         cls = "reach" if cond else "unmet"
         t = f"{unit}{abs(val):,.0f}" if abs(val) >= 100 else f"{unit}{abs(val):.2f}"
@@ -180,7 +254,7 @@ if not df_raw.empty:
         cls = "reach" if cond else "unmet"
         return f'<span class="{cls}">{val:.1f}%</span>'
 
-    # All Stores
+    # All Stores 集計
     act = sum([get_score(df_raw, i, 6) for i in range(12, 54)])
     tgt, bgt, ly = get_score(df_raw, 3, 7), get_score(df_raw, 3, 9), get_score(df_raw, 3, 11)
     mt, mb, ml = get_score(df_raw, 6, 7), get_score(df_raw, 6, 9), get_score(df_raw, 6, 11)
@@ -206,7 +280,7 @@ if not df_raw.empty:
         w_rows += f'<tr><td>{w_n}</td><td>{wa:,.0f}</td><td>{wt:,.0f}</td><td>{fmt_v(wa-wt, wa>=wt)}</td><td>{fmt_p(wa/wt*100 if wt else 0, wa>=wt)}</td><td>{wb:,.0f}</td><td>{fmt_v(wa-wb, wa>=wb)}</td><td>{fmt_p(wa/wb*100 if wb else 0, wa>=wb)}</td><td>{wl:,.0f}</td><td>{fmt_p(wa/wl*100 if wl else 0, wa>=wl)}</td></tr>'
     st.markdown(f'<table class="base-table"><tr><th>WEEK</th><th>受注額</th><th>目標</th><th>差額</th><th>達成率</th><th>予算</th><th>差額</th><th>達成率</th><th>前年実績</th><th>前年比</th></tr>{w_rows}</table>', unsafe_allow_html=True)
 
-    # KPI別
+    # KPI別サマリー
     current_week_row_idx = week_row_map[sel_week]
     st.markdown(f"<h4>KPI別 ({sel_week})</h4>", unsafe_allow_html=True)
     k_data = [("座数", 44, 48, 52, "zasu"), ("客単価", 47, 51, 55, "tanka"), ("CVR", 45, 49, 53, "cvr"), ("客数", 46, 50, 54, "kyaku")]
@@ -220,32 +294,137 @@ if not df_raw.empty:
         k_rows += f'<tr><td>{m}</td><td>{k_n}</td><td>{t_s}</td><td>{fmt_v(av, av>=tv, u)}</td><td>{fmt_p(av/tv*100 if tv else 0, av>=tv)}</td><td>{fmt_p(av/lv*100 if lv else 0, av>=lv)}</td><td class="comment-cell">{reason}</td></tr>'
     st.markdown(f'<table class="base-table kpi-table"><tr><th>評</th><th>KPI</th><th>目標</th><th>実績</th><th>目標比</th><th>LY比</th><th>理由</th></tr>{k_rows}</table>', unsafe_allow_html=True)
 
-    # モール別MTD
-    st.markdown(f"<h4>モール別MTD ({sel_week})</h4>", unsafe_allow_html=True)
-    store_names_row = df_raw.iloc[9].fillna("").astype(str).str.strip()
-    start_r = week_juchu_start_map[sel_week]
-    end_r = start_r + 7
-    mall_data_list = []
-    total_juchu_all_stores = 0
-    for group_name, stores in STORE_GROUPS.items():
-        group_juchu = 0
-        store_count = 0
-        for store in stores:
-            matching_cols = [idx for idx, name in enumerate(store_names_row) if name == store]
-            if matching_cols:
-                col_idx = matching_cols[0]
-                store_count += 1
-                group_juchu += sum([get_score(df_raw, r, col_idx + 1) for r in range(start_r, end_r)])
-        mall_data_list.append({"name": group_name, "count": store_count, "juchu": group_juchu})
-        total_juchu_all_stores += group_juchu
-    mall_report_rows = f'''
-    <tr style="background-color:#f0f2f6; font-weight:bold;">
-        <td>全体</td><td>{sum([d['count'] for d in mall_data_list])}</td><td>{total_juchu_all_stores:,.0f}</td><td>100.0%</td>
-    </tr>'''
-    for d in mall_data_list:
-        share = (d['juchu'] / total_juchu_all_stores * 100) if total_juchu_all_stores else 0
-        mall_report_rows += f'<tr><td>{d["name"]}</td><td>{d["count"]}</td><td>{d["juchu"]:,.0f}</td><td>{share:.1f}%</td></tr>'
-    st.markdown(f'<table class="base-table"><tr><th>業態</th><th>ストア数</th><th>受注実績</th><th>売上シェア</th></tr>{mall_report_rows}</table>', unsafe_allow_html=True)
+    # --- KPIグラフ ---
+    st.markdown("<h4>📋 KPIグラフ(１ストア平均)</h4>", unsafe_allow_html=True)
+    
+    p_juchu = get_local_image_path(current_key, "juchu")
+    p_zasu = get_local_image_path(current_key, "zasu")
+    p_tanka = get_local_image_path(current_key, "tanka")
+    p_cvr = get_local_image_path(current_key, "cvr")
+    p_kyaku = get_local_image_path(current_key, "kyaku")
+    p_sonota = get_local_image_path(current_key, "sonota")
+
+    row1_col1, row1_col2, row1_col3 = st.columns(3)
+    with row1_col1:
+        st.markdown('<div class="img-label">受注</div>', unsafe_allow_html=True)
+        if p_juchu: st.image(p_juchu, use_container_width=True)
+        else: st.markdown('<div class="empty-box">未アップロード</div>', unsafe_allow_html=True)
+    with row1_col2:
+        st.markdown('<div class="img-label">座数</div>', unsafe_allow_html=True)
+        if p_zasu: st.image(p_zasu, use_container_width=True)
+        else: st.markdown('<div class="empty-box">未アップロード</div>', unsafe_allow_html=True)
+    with row1_col3:
+        st.markdown('<div class="img-label">客単価</div>', unsafe_allow_html=True)
+        if p_tanka: st.image(p_tanka, use_container_width=True)
+        else: st.markdown('<div class="empty-box">未アップロード</div>', unsafe_allow_html=True)
+            
+    st.write("")
+    row2_col1, row2_col2, row2_col3 = st.columns(3)
+    with row2_col1:
+        st.markdown('<div class="img-label">CVR</div>', unsafe_allow_html=True)
+        if p_cvr: st.image(p_cvr, use_container_width=True)
+        else: st.markdown('<div class="empty-box">未アップロード</div>', unsafe_allow_html=True)
+    with row2_col2:
+        st.markdown('<div class="img-label">客数</div>', unsafe_allow_html=True)
+        if p_kyaku: st.image(p_kyaku, use_container_width=True)
+        else: st.markdown('<div class="empty-box">未アップロード</div>', unsafe_allow_html=True)
+    with row2_col3:
+        st.markdown('<div class="img-label">その他</div>', unsafe_allow_html=True)
+        if p_sonota: st.image(p_sonota, use_container_width=True)
+        else: st.markdown('<div class="empty-box">未アップロード</div>', unsafe_allow_html=True)
+
+    # --- 📊 モール別MTD (過去10週推移・柔軟検索版) ---
+    st.markdown("<h4>📊 モール別MTD (過去10週推移)</h4>", unsafe_allow_html=True)
+    
+    mall_mapping, df_weekly = load_mall_mapping_and_weekly_data()
+    
+    if not df_weekly.empty and mall_mapping:
+        header_row = [str(x).strip() for x in df_weekly.iloc[0].tolist()]
+        
+        # 🌟 【修正ポイント】どのような日付の形式（26/05, 2026-05, 5/）でもヒットする柔軟な判定ロジック
+        month_digit = str(sel_month).replace("月", "")
+        month_digit_z = month_digit.zfill(2)
+        
+        matched_cols = []
+        for i, h in enumerate(header_row):
+            # 例: "26/05/", "2026-05-", "/5/" 等を検出
+            if f"26/{month_digit_z}/" in h or f"2026-{month_digit_z}-" in h or h.startswith(f"{month_digit}/") or f"/{month_digit}/" in h:
+                matched_cols.append(i)
+        
+        week_idx = ["W1","W2","W3","W4","W5","W6"].index(sel_week) if sel_week in ["W1","W2","W3","W4","W5","W6"] else 0
+        
+        # マッチする列が見つかった場合の処理。見つからなければ最終列から遡る
+        if matched_cols:
+            base_col_idx = matched_cols[min(week_idx, len(matched_cols)-1)]
+        else:
+            base_col_idx = len(header_row) - 1
+            
+        # 過去10週分の列を安全に抽出
+        ten_weeks_indices = []
+        for step in range(10):
+            target_idx = base_col_idx - step
+            if target_idx >= 5:  # F列以降を対象にする
+                ten_weeks_indices.append(target_idx)
+                
+        # 指定の業態順
+        target_gyotais = ["全体", "路面店", "イオンモール", "ららぽーと", "アウトレット", "MARK IS", "アミュプラザ", "駅ビル", "ショッピングモール"]
+        
+        report_data = {g: {"count": 0, "weeks": {idx: 0 for idx in ten_weeks_indices}} for g in target_gyotais}
+        unique_stores_by_gyotai = {g: set() for g in target_gyotais}
+        
+        # クロスチェック合算処理
+        for r_idx in range(1, len(df_weekly)):
+            store_name = str(df_weekly.iloc[r_idx, 1]).strip() # B列
+            kpi_name = str(df_weekly.iloc[r_idx, 4]).strip()   # E列
+            
+            if store_name in mall_mapping and "受注金額(税抜)" in kpi_name:
+                gyotai = mall_mapping[store_name]
+                if gyotai in report_data:
+                    unique_stores_by_gyotai[gyotai].add(store_name)
+                    unique_stores_by_gyotai["全体"].add(store_name)
+                    
+                    for c_idx in ten_weeks_indices:
+                        val_str = str(df_weekly.iloc[r_idx, c_idx]).replace(',','').replace('¥','').strip()
+                        val = pd.to_numeric(val_str, errors='coerce') if val_str else 0
+                        if not pd.isna(val):
+                            report_data[gyotai]["weeks"][c_idx] += val
+                            report_data["全体"]["weeks"][c_idx] += val
+
+        for g in target_gyotais:
+            report_data[g]["count"] = len(unique_stores_by_gyotai[g])
+
+        header_html = "<tr><th>業態</th><th>ストア数</th><th>受注実績</th><th>売上シェア</th>"
+        for c_idx in ten_weeks_indices:
+            header_html += f"<th>{header_row[c_idx]}</th>"
+        header_html += "</tr>"
+        
+        rows_html = ""
+        base_week_col = ten_weeks_indices[0] if ten_weeks_indices else 0
+        total_base_juchu = report_data["全体"]["weeks"].get(base_week_col, 0)
+        
+        for g in target_gyotais:
+            g_count = report_data[g]["count"]
+            g_base_juchu = report_data[g]["weeks"].get(base_week_col, 0)
+            
+            share = (g_base_juchu / total_base_juchu * 100) if total_base_juchu else 0
+            if g == "全体": share = 100.0
+            
+            style_attr = ' style="background-color:#f0f2f6; font-weight:bold;"' if g == "全体" else ""
+            row_str = f"<tr{style_attr}><td>{g}</td><td>{g_count}</td><td>{g_base_juchu:,.0f}</td><td>{share:.2f}%</td>"
+            
+            for c_idx in ten_weeks_indices:
+                w_total = report_data["全体"]["weeks"].get(c_idx, 0)
+                w_juchu = report_data[g]["weeks"].get(c_idx, 0)
+                w_share = (w_juchu / w_total * 100) if w_total else 0
+                if g == "全体": w_share = 100.0
+                row_str += f"<td>{w_share:.2f}%</td>"
+                
+            row_str += "</tr>"
+            rows_html += row_str
+            
+        st.markdown(f'<table class="base-table">{header_html}{rows_html}</table>', unsafe_allow_html=True)
+    else:
+        st.info("KPI｜Weekly からデータを取得中、またはマッピング情報を照合中です...")
 
     # 総評
     st.markdown("<h4>■総評 / 今週のアクション</h4>", unsafe_allow_html=True)
