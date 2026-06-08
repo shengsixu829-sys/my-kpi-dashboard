@@ -146,8 +146,10 @@ def save_to_sheet_live(search_key, data_list):
 def save_local_image(key, suffix, uploaded_file):
     if uploaded_file is not None:
         file_path = os.path.join(IMG_DIR, f"{key}_{suffix}.png")
+        # アップロードされたバイナリデータを取得
+        data_bytes = uploaded_file.getvalue()
         with open(file_path, "wb") as f:
-            f.write(uploaded_file.getbuffer())
+            f.write(data_bytes)
 
 def get_local_image_path(key, suffix):
     file_path = os.path.join(IMG_DIR, f"{key}_{suffix}.png")
@@ -186,10 +188,17 @@ with st.sidebar.form("input_form"):
     img_kyaku = st.file_uploader("客数", type=["png", "jpg", "jpeg"])
     img_sonota = st.file_uploader("その他", type=["png", "jpg", "jpeg"])
     sum_text = st.text_area("■総評 / 今週のアクション", value=current_txt["summary"], height=150)
+    
     if st.form_submit_button("全ユーザーに共有保存"):
         if save_to_sheet_live(current_key, [r_zasu, r_tanka, r_cvr, r_kyaku, sum_text]):
-            for s, f in [("juchu", img_juchu), ("zasu", img_zasu), ("tanka", img_tanka), ("cvr", img_cvr), ("kyaku", img_kyaku), ("sonota", img_sonota)]:
-                save_local_image(current_key, s, f)
+            # 🌟 明示的にファイルをローカルストレージへ即時保存・確定させる処理
+            if img_juchu is not None: save_local_image(current_key, "juchu", img_juchu)
+            if img_zasu is not None: save_local_image(current_key, "zasu", img_zasu)
+            if img_tanka is not None: save_local_image(current_key, "tanka", img_tanka)
+            if img_cvr is not None: save_local_image(current_key, "cvr", img_cvr)
+            if img_kyaku is not None: save_local_image(current_key, "kyaku", img_kyaku)
+            if img_sonota is not None: save_local_image(current_key, "sonota", img_sonota)
+            
             st.success("保存しました！")
             st.cache_data.clear()
             st.rerun()
@@ -201,7 +210,6 @@ if not df_raw.empty:
     header_logo = f'<img src="{LOGO_DATA}" class="carte-logo" style="height: 50px; width: auto; border-radius: 4px; object-fit: contain;">' if LOGO_DATA else ""
     st.markdown(f'''<div style="display: flex; align-items: center; gap: 10px; margin-bottom: 20px;">{header_logo}<h1 style="margin: 0; padding: 0; color: #3b484e; font-family: 'Meiryo', sans-serif; font-size: 2.2rem;">ストアカルテ {sel_year}年{sel_month}</h1></div>''', unsafe_allow_html=True)
     
-    # 🌟 デザインCSS（通常表示、およびPDF・印刷時の改ページ分断防御設定を完全網羅）
     st.markdown('''<style>
         html, body, [class*="css"] { font-family: "Meiryo", sans-serif; color: #3b484e; }
         .reach { color: #58b5ca; font-weight: bold; }
@@ -221,29 +229,20 @@ if not df_raw.empty:
         .mall-share-table tr.total-row { background-color: #f0f2f6; font-weight: bold; }
         .mall-share-table tr.total-row td { border-bottom: 2px solid rgba(88, 181, 202, 0.9); }
         
-        /* 通常表示用のグリッド構成 */
         .carte-capture-container { display: flex; flex-wrap: wrap; gap: 15px; width: 100%; margin-top: 10px; }
         .carte-capture-box { width: calc(33.333% - 10px); min-width: 250px; background-color: #fff; box-sizing: border-box; }
         .carte-img-frame { width: 100%; height: auto; object-fit: contain; border-radius: 4px; border: 1px solid #eeece1; display: block; }
         
-        /* 🌟 印刷・PDF書き出し専用の強力なレイアウト制御 */
         @media print {
             body { width: 100% !important; margin: 0 !important; padding: 5mm !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
             [data-testid="stSidebar"] { display: none !important; }
-            
-            /* タイトルロゴサイズ固定 */
             .carte-logo { max-width: 120px !important; height: auto !important; object-fit: contain !important; }
-            
-            /* KPIグラフ横3列×2段を100%崩さない設定 */
             div:has(> .carte-capture-container) { display: block !important; }
             .carte-capture-container { display: flex !important; flex-direction: row !important; flex-wrap: wrap !important; gap: 12px !important; width: 100% !important; page-break-inside: avoid !important; }
             .carte-capture-box { width: 32% !important; max-width: 32% !important; min-width: 32% !important; flex: 0 0 auto !important; page-break-inside: avoid !important; display: block !important; }
             .carte-img-frame { width: 100% !important; height: auto !important; object-fit: contain !important; image-rendering: -webkit-optimize-contrast !important; }
-            
-            /* 🌟 要素の途中での不自然な改ページ（分断）を厳格にブロック */
             .printable-block { page-break-inside: avoid !important; break-inside: avoid !important; display: block !important; width: 100% !important; }
             table, .mall-share-table, .base-table { page-break-inside: avoid !important; break-inside: avoid !important; font-size: 0.75rem !important; }
-            
             h1 { font-size: 1.6rem !important; }
             h4 { font-size: 1.1rem !important; page-break-after: avoid !important; margin-top: 18px !important; }
             .summary-box { font-size: 0.8rem !important; }
@@ -286,7 +285,7 @@ if not df_raw.empty:
         k_rows += f'<tr><td>{m}</td><td>{k_n}</td><td>{u}{tv:,.0f}</td><td>{fmt_v(av, av>=tv, u)}</td><td>{fmt_p(av/tv*100 if tv else 0, av>=tv)}</td><td>{fmt_p(av/lv*100 if lv else 0, av>=lv)}</td><td class="comment-cell">{reason}</td></tr>'
     st.markdown(f'<table class="base-table kpi-table"><tr><th>評</th><th>KPI</th><th>目標</th><th>実績</th><th>目標比</th><th>LY比</th><th>理由</th></tr>{k_rows}</table>', unsafe_allow_html=True)
 
-    # KPIグラフ
+    # KPIグラフ（セッション状態からの確実なローカル読み出し）
     st.markdown("<h4>📋 KPIグラフ(１ストア平均)</h4>", unsafe_allow_html=True)
     suffixes = [("juchu", "受注"), ("zasu", "座数"), ("tanka", "客単価"), ("cvr", "CVR"), ("kyaku", "客数"), ("sonota", "その他")]
     
@@ -365,7 +364,6 @@ if not df_raw.empty:
     else:
         st.info("データ取得中...")
 
-    # 🌟 「■総評 / 今週のアクション」の出力を改ページ回避用コンテナクラス（printable-block）で包む
     st.markdown(f'''
     <div class="printable-block">
         <h4>■総評 / 今週のアクション</h4>
