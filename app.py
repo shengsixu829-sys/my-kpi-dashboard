@@ -46,18 +46,24 @@ SAVE_SHEET_ID = "1_8XbvigwRRIR-HxT5OEDlrKdpW8J9AjYYtjEk33LPIk"
 TENPO_DATA_SP_ID = "1jJcIVOFTICCPr3YnoqkO-NxRzwTcvr_HfwgZunS0vdY"
 WEEKLY_DATA_SP_ID = "1_lEdGhSnGzEIgMFn2Q_qUbCVIL35MVHQBxW0M_2TcyI"
 
-# 固定の「【週次】予実管理表」のGID
-YODJITSU_GID = "1723932600"
-
-# --- 3. CSV形式での高速データ読み込みロジック ---
+# --- 3. 年月に応じた動的シートデータ読込ロジック ---
 @st.cache_data(ttl=5)
-def load_raw_data_auth(gid):
+def load_raw_data_by_sheet_name(sel_year_str, sel_month_str):
     try:
+        # 選択された年（例:"2026"-> "26"）と月（例:"5月"-> "05"）から「2605」を生成
+        year_suffix = str(sel_year_str)[2:]
+        month_num = str(sel_month_str).replace("月", "").zfill(2)
+        target_sheet_name = f"{year_suffix}{month_num}"
+        
+        sh = gc.open_by_key(SPREADSHEET_ID)
+        ws = sh.worksheet(target_sheet_name)
+        
         import google.auth.transport.requests
         request = google.auth.transport.requests.Request()
         auth_creds.refresh(request)
         token = auth_creds.token
-        export_url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid={gid}"
+        
+        export_url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid={ws.id}"
         headers = {"Authorization": f"Bearer {token}"}
         response = requests.get(export_url, headers=headers)
         if response.status_code == 200:
@@ -254,8 +260,8 @@ with st.sidebar.form("input_form"):
             st.rerun()
 
 # --- 6. メイン表示 ---
-# 固定の「【週次】予実管理表」シートからデータを100%正確に呼び出し
-df_raw = load_raw_data_auth(YODJITSU_GID)
+# 🌟 選択した年・月に応じた動的シート（「2605」など）からデータを呼び出し
+df_raw = load_raw_data_by_sheet_name(sel_year, sel_month)
 
 if not df_raw.empty:
     header_logo = f'<img src="{LOGO_DATA}" class="carte-logo" style="height: 50px; width: auto; border-radius: 4px; object-fit: contain;">' if LOGO_DATA else ""
@@ -314,7 +320,7 @@ if not df_raw.empty:
     tgt, bgt, ly = get_score(df_raw, 3, 7), get_score(df_raw, 3, 9), get_score(df_raw, 3, 11)
     mt, mb, ml = get_score(df_raw, 6, 7), get_score(df_raw, 6, 9), get_score(df_raw, 6, 11)
     st.markdown("<h4>All Stores ※FC excluded</h4>", unsafe_allow_html=True)
-    st.markdown(f'''<table class="base-table"><tr><th style="background-color:#606970;">月次受注額</th><td colspan="5" style="font-size:1.2em;font-weight:bold;">{act:,.0f}</td></tr><tr><th>月次目標</th><td>{tgt:,.0f}</td><th>月次予算</th><td>{bgt:,.0f}</td><th>前年受注額</th><td>{ly:,.0f}</td></tr><tr><th>目標比</th><td>{fmt_p(act/tgt*100 if tgt else 0, act>=tgt)}</td><th>予算比</th><td>{fmt_p(act/bgt*100 if bgt else 0, act>=bgt)}</td><th>前年比</th><td>{fmt_p(act/ly*100 if ly else 0, act>=ly)}</td></tr><tr><th>差額</th><td>{fmt_v(act-tgt, act>=tgt)}</td><th>差額</th><td>{fmt_v(act-bgt, act>=bgt)}</td><th>差額</th><td>{fmt_v(act-ly, act>=ly)}</td></tr><tr><th>MTD目標</th><td>{mt:,.0f}</td><th>MTD予算</th><td>{mb:,.0f}</td><th>MTD前年</th><td>{ml:,.0f}</td></tr><tr><th>MTD目標%</th><td>{fmt_p(act/mt*100 if mt else 0, act>=mt)}</td><th>MTD予算%</th><td>{fmt_p(act/mb*100 if mb else 0, act>=mb)}</td><th>MTD前年%</th><td>{fmt_p(act/ml*100 if ml else 0, act>=ml)}</td></tr><tr><th>MTD目標 差額</th><td>{fmt_v(act-mt, act>=mt)}</td><th>MTD予算 差額</th><td>{fmt_v(act-mb, act>=mb)}</td><th>MTD前年 差額</th><td>{fmt_v(act-ml, act>=ml)}</td></tr></table>''', unsafe_allow_html=True)
+    st.markdown(f'''<table class="base-table"><tr><th style="background-color:#606970;">月次受注額</th><td colspan="5" style="font-size:1.2em;font-weight:bold;">{act:,.0f}</td></tr><tr><th>月次目標</th><td>{tgt:,.0f}</td><th>月次予算</th><td>{bgt:,.0f}</td><th>前年受注額</th><td>{ly:,.0f}</td></tr><tr><th>目標比</th><td>{fmt_p(act/tgt*100 if tgt else 0, act>=tgt)}</td><th>予算比</th><td>{fmt_p(act/bgt*100 if bgt else 0, act>=bgt)}</td><th>前年比</th><td>{fmt_p(act/ly*100 if ly else 0, act>=ly)}</td></tr><tr><th>差額</th><td>{fmt_v(act-tgt, act>=tgt)}</td><th>差額</th><td>{fmt_v(act-bgt, act>=bgt)}</td><th>差額</th><td>{fmt_v(act-ly, act>=ly)}</td></tr><tr><th>MTD目標</th><td>{mt:,.0f}</td><th>MTD予算</th><td>{mb:,.0f}</td><th>MTD前年</th><td>{ml:,.0f}</td></tr><tr><th>MTD目標%</th><td>{fmt_p(act/mt*100 if mt else 0, act>=mt)}</td><th>MTD予算%</th><td>{fmt_p(act/mb*100 if mb else 0, act>=mb)}</td><th>MTD前年%</th><td>{fmt_p(act/ml*100 if ml else 0, act>=ml)}</td></tr><tr><th>MTD目標 差額</th><td>{fmt_v(act-mt, act>=mt)}</td><th>MTD予算 差額</th><td>{fmt_v(act-mb, decline:=act>=mb)}</td><th>MTD前年 差額</th><td>{fmt_v(act-ml, act>=ml)}</td></tr></table>''', unsafe_allow_html=True)
 
     # WEEKサマリー
     st.markdown("<h4>WEEKサマリー</h4>", unsafe_allow_html=True)
@@ -421,4 +427,4 @@ if not df_raw.empty:
     </div>
     ''', unsafe_allow_html=True)
 else:
-    st.warning("「【週次】予実管理表」データを読み込めませんでした。スプレッドシートへのアクセス設定を確認してください。")
+    st.warning("指定された月のデータシート（例：2605）を読み込めませんでした。シート名を確認してください。")
