@@ -227,7 +227,7 @@ month_list = ["3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "
 sel_month = st.sidebar.selectbox("月", month_list, index=2) # デフォルト5月
 
 # 各週に対応する動的シート上の行インデックスマッピング
-# W1=57行目, W2=58行目, W3=59行目, W4=60行目, W5=61行目, W6=62行目
+# W1=57, W2=58, W3=59, W4=60, W5=61, W6=62
 week_row_map = {"W1": 57, "W2": 58, "W3": 59, "W4": 60, "W5": 61, "W6": 62}
 sel_week = st.sidebar.selectbox("週", list(week_row_map.keys()))
 
@@ -241,7 +241,7 @@ with st.sidebar.form("input_form"):
     st.info(f"📍 読込中キー: {current_key}" )
     r_zasu = st.text_area("座数の理由", value=current_txt["zasu"])
     r_tanka = st.text_area("客単価の理由", value=current_txt["tanka"])
-    r_cvr = st.text_area("CVR의 이유", value=current_txt["cvr"])
+    r_cvr = st.text_area("CVRの理由", value=current_txt["cvr"])
     r_kyaku = st.text_area("客数の理由", value=current_txt["kyaku"])
     st.markdown("<p style='font-size:0.85em; font-weight:bold; margin-bottom:-5px;'>📸 キャプチャ添付</p>", unsafe_allow_html=True)
     
@@ -307,9 +307,10 @@ if not df_raw.empty:
         }
     </style>''', unsafe_allow_html=True)
 
-    def fmt_v(val, cond, unit=""):
+    # 🌟 NameErrorを防ぐため、kpi_name変数を独立させたフォーマット共通関数
+    def fmt_v(val, cond, unit="", is_tanka=False):
         cls = "reach" if cond else "unmet"
-        if k_n == "客単価":
+        if is_tanka:
             t = f"{unit}{abs(val):,.0f}"
         else:
             t = f"{unit}{abs(val):,.0f}" if abs(val) >= 100 else f"{unit}{abs(val):.2f}"
@@ -324,7 +325,7 @@ if not df_raw.empty:
     tgt, bgt, ly = get_score(df_raw, 3, 7), get_score(df_raw, 3, 9), get_score(df_raw, 3, 11)
     mt, mb, ml = get_score(df_raw, 6, 7), get_score(df_raw, 6, 9), get_score(df_raw, 6, 11)
     st.markdown("<h4>All Stores ※FC excluded</h4>", unsafe_allow_html=True)
-    st.markdown(f'''<table class="base-table"><tr><th style="background-color:#606970;">月次受注額</th><td colspan="5" style="font-size:1.2em;font-weight:bold;">{act:,.0f}</td></tr><tr><th>月次目標</th><td>{tgt:,.0f}</td><th>月次予算</th><td>{bgt:,.0f}</td><th>前年受注額</th><td>{ly:,.0f}</td></tr><tr><th>目標比</th><td>{fmt_p(act/tgt*100 if tgt else 0, act>=tgt)}</td><th>予算比</th><td>{fmt_p(act/bgt*100 if bgt else 0, act>=bgt)}</td><th>前年比</th><td>{fmt_p(act/ly*100 if ly else 0, act>=ly)}</td></tr><tr><th>差額</th><td>{fmt_v(act-tgt, act>=tgt)}</td><th>差額</th><td>{fmt_v(act-bgt, act>=bgt)}</td><th>差額</th><td>{fmt_v(act-ly, act>=ly)}</td></tr><tr><th>MTD目標</th><td>{mt:,.0f}</td><th>MTD予算</th><td>{mb:,.0f}</td><th>MTD前年</th><td>{ml:,.0f}</td></tr><tr><th>MTD目標%</th><td>{fmt_p(act/mt*100 if mt else 0, act>=mt)}</td><th>MTD予算%</th><td>{fmt_p(act/mb*100 if mb else 0, act>=mb)}</td><th>MTD前年%</th><td>{fmt_p(act/ml*100 if ml else 0, act>=ml)}</td></tr><tr><th>MTD目標 差額</th><td>{fmt_v(act-mt, act>=mt)}</td><th>MTD予算 差額</th><td>{fmt_v(act-mb, decline:=act>=mb)}</td><th>MTD前年 差額</th><td>{fmt_v(act-ml, act>=ml)}</td></tr></table>''', unsafe_allow_html=True)
+    st.markdown(f'''<table class="base-table"><tr><th style="background-color:#606970;">月次受注額</th><td colspan="5" style="font-size:1.2em;font-weight:bold;">{act:,.0f}</td></tr><tr><th>月次目標</th><td>{tgt:,.0f}</td><th>月次予算</th><td>{bgt:,.0f}</td><th>前年受注額</th><td>{ly:,.0f}</td></tr><tr><th>目標比</th><td>{fmt_p(act/tgt*100 if tgt else 0, act>=tgt)}</td><th>予算比</th><td>{fmt_p(act/bgt*100 if bgt else 0, act>=bgt)}</td><th>前年比</th><td>{fmt_p(act/ly*100 if ly else 0, act>=ly)}</td></tr><tr><th>差額</th><td>{fmt_v(act-tgt, act>=tgt)}</td><th>差額</th><td>{fmt_v(act-bgt, act>=bgt)}</td><th>差額</th><td>{fmt_v(act-ly, act>=ly)}</td></tr><tr><th>MTD目標</th><td>{mt:,.0f}</td><th>MTD予算</th><td>{mb:,.0f}</td><th>MTD前年</th><td>{ml:,.0f}</td></tr><tr><th>MTD目標%</th><td>{fmt_p(act/mt*100 if mt else 0, act>=mt)}</td><th>MTD予算%</th><td>{fmt_p(act/mb*100 if mb else 0, act>=mb)}</td><th>MTD前年%</th><td>{fmt_p(act/ml*100 if ml else 0, act>=ml)}</td></tr><tr><th>MTD目標 差額</th><td>{fmt_v(act-mt, act>=mt)}</td><th>MTD予算 差額</th><td>{fmt_v(act-mb, act>=mb)}</td><th>MTD前年 差額</th><td>{fmt_v(act-ml, act>=ml)}</td></tr></table>''', unsafe_allow_html=True)
 
     # WEEKサマリー
     st.markdown("<h4>WEEKサマリー</h4>", unsafe_allow_html=True)
@@ -334,13 +335,12 @@ if not df_raw.empty:
         w_rows += f'<tr><td>{w_n}</td><td>{wa:,.0f}</td><td>{wt:,.0f}</td><td>{fmt_v(wa-wt, wa>=wt)}</td><td>{fmt_p(wa/wt*100 if wt else 0, wa>=wt)}</td><td>{wb:,.0f}</td><td>{fmt_v(wa-wb, wa>=wb)}</td><td>{fmt_p(wa/wb*100 if wb else 0, wa>=wb)}</td><td>{wl:,.0f}</td><td>{fmt_p(wa/wl*100 if wl else 0, wa>=wl)}</td></tr>'
     st.markdown(f'<table class="base-table"><tr><th>WEEK</th><th>受注額</th><th>目標</th><th>差額</th><th>達成率</th><th>予算</th><th>差額</th><th>達成率</th><th>前年実績</th><th>前年比</th></tr>{w_rows}</table>', unsafe_allow_html=True)
 
-    # 🌟 56行目のヘッダー配列に基づく各週KPI別データ抽出ロジック（完全整合）
-    selected_row_idx = week_row_map[sel_week] # 選択された週の行番号 (例: W1=57, W2=58...)
+    # 🌟 56行目ヘッダー項目に完全準拠した特定セル位置からのデータ自動マッピング
+    selected_row_idx = week_row_map[sel_week] 
     
     st.markdown(f"<h4>KPI別 ({sel_week})</h4>", unsafe_allow_html=True)
-    # 各アルファベット列に対応する1オリジン・インデックス
-    # 座数: AR(44), AV(48), AZ(52) | 客単価: AU(47), AY(51), BC(55)
-    # CVR: AS(45), AW(49), BA(53) | 客数: AT(46), AX(50), BB(54)
+    # アルファベット指定列マッピング: 座数[AR(44), AV(48), AZ(52)] | 客単価[AU(47), AY(51), BC(55)]
+    # CVR[AS(45), AW(49), BA(53)] | 客数[AT(46), AX(50), BB(54)]
     k_data = [
         ("座数", 44, 48, 52, "zasu"), 
         ("客単価", 47, 51, 55, "tanka"), 
@@ -354,21 +354,20 @@ if not df_raw.empty:
         tv = get_score(df_raw, selected_row_idx, tc)
         lv = get_score(df_raw, selected_row_idx, lc)
         
-        # パーセンテージ表示(CVRなど)のためのフォーマット補正ロジック
         is_percentage = (k_n == "CVR")
-        u = "¥" if k_n == "客単価" else ""
+        is_tanka_kpi = (k_n == "客単価")
+        u = "¥" if is_tanka_kpi else ""
         
-        # 達成判定記号
         m = "◯" if (av/tv if tv else 0) >= 1 else "△" if (av/tv if tv else 0) >= 0.9 else "✕"
         reason = str(current_txt[t_k]).replace("\n", "<br>")
         
-        # 表示テキストの整形
         if is_percentage:
-            av_str = f"{av:.2f}%" if av < 100 else f"{av/100:.2f}%" # スプレッドシート側の100倍表記対策
+            # 100倍表記(例:11.89%)と小数表記両方の自動ズレ補正
+            av_str = f"{av:.2f}%" if av < 100 else f"{av/100:.2f}%"
             tv_str = f"{tv:.2f}%" if tv < 100 else f"{tv/100:.2f}%"
             k_rows += f'<tr><td>{m}</td><td>{k_n}</td><td>{tv_str}</td><td><span class="{"reach" if av>=tv else "unmet"}">{av_str}</span></td><td>{fmt_p(av/tv*100 if tv else 0, av>=tv)}</td><td>{fmt_p(av/lv*100 if lv else 0, av>=lv)}</td><td class="comment-cell">{reason}</td></tr>'
         else:
-            k_rows += f'<tr><td>{m}</td><td>{k_n}</td><td>{u}{tv:,.0f}</td><td>{fmt_v(av, av>=tv, u)}</td><td>{fmt_p(av/tv*100 if tv else 0, av>=tv)}</td><td>{fmt_p(av/lv*100 if lv else 0, av>=lv)}</td><td class="comment-cell">{reason}</td></tr>'
+            k_rows += f'<tr><td>{m}</td><td>{k_n}</td><td>{u}{tv:,.0f}</td><td>{fmt_v(av, av>=tv, u, is_tanka=is_tanka_kpi)}</td><td>{fmt_p(av/tv*100 if tv else 0, av>=tv)}</td><td>{fmt_p(av/lv*100 if lv else 0, av>=lv)}</td><td class="comment-cell">{reason}</td></tr>'
             
     st.markdown(f'<table class="base-table kpi-table"><tr><th>評</th><th>KPI</th><th>目標</th><th>実績</th><th>目標比</th><th>LY比</th><th>理由</th></tr>{k_rows}</table>', unsafe_allow_html=True)
 
@@ -416,7 +415,8 @@ if not df_raw.empty:
         for r_idx in range(1, len(df_weekly)):
             st_name, kpi = str(df_weekly.iloc[r_idx, 1]).strip(), str(df_weekly.iloc[r_idx, 4]).strip()
             
-            if st_name in mall_mapping and "受注金額(税抜)" in kpi:
+            if_condition = st_name in mall_mapping and "受注金額(税抜)" in kpi
+            if if_condition:
                 g = mall_mapping[st_name]
                 if g in report_data:
                     unique_stores[g].add(st_name); unique_stores["全体"].add(st_name)
