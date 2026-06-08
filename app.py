@@ -150,9 +150,21 @@ def save_local_image(key, suffix, uploaded_file):
         with open(file_path, "wb") as f:
             f.write(data_bytes)
 
-def get_local_image_path(key, suffix):
-    file_path = os.path.join(IMG_DIR, f"{key}_{suffix}.png")
-    return file_path if os.path.exists(file_path) else None
+# 🌟 新旧のファイル名を両方探索して画像を呼び出す互換ロジック
+def get_local_image_path_with_fallback(sel_year, sel_month, sel_week, suffix):
+    # パターン1: 新しい名前形式「2026-5月-W1_juchu.png」
+    new_key = f"{sel_year}-{sel_month}-{sel_week}"
+    new_path = os.path.join(IMG_DIR, f"{new_key}_{suffix}.png")
+    if os.path.exists(new_path):
+        return new_path
+        
+    # パターン2: 過去の旧名前形式「5月-W1_juchu.png」
+    old_key = f"{sel_month}-{sel_week}"
+    old_path = os.path.join(IMG_DIR, f"{old_key}_{suffix}.png")
+    if os.path.exists(old_path):
+        return old_path
+        
+    return None
 
 def ceil_p(val):
     if val is None or pd.isna(val): return 0.0
@@ -170,8 +182,13 @@ sel_month = st.sidebar.selectbox("月", month_list, index=2)
 week_row_map = {"W1": 57, "W2": 58, "W3": 59, "W4": 60, "W5": 61, "W6": 62}
 sel_week = st.sidebar.selectbox("週", list(week_row_map.keys()))
 
+# シート保存キー（旧データとの互換性のため、保存データ側も自動で引き当て）
 current_key = f"{sel_year}-{sel_month}-{sel_week}"
 current_txt = fetch_sheet_text_live(current_key)
+if not current_txt["summary"]:
+    # もし年付きキーで見つからない場合、過去の年なしキー（例: 5月-W1）でも探索
+    fallback_key = f"{sel_month}-{sel_week}"
+    current_txt = fetch_sheet_text_live(fallback_key)
 
 with st.sidebar.form("input_form"):
     st.info(f"📍 読込中キー: {current_key}" )
@@ -180,6 +197,7 @@ with st.sidebar.form("input_form"):
     r_cvr = st.text_area("CVRの理由", value=current_txt["cvr"])
     r_kyaku = st.text_area("客数の理由", value=current_txt["kyaku"])
     st.markdown("<p style='font-size:0.85em; font-weight:bold; margin-bottom:-5px;'>📸 キャプチャ添付</p>", unsafe_allow_html=True)
+    
     img_juchu = st.file_uploader("受注額", type=["png", "jpg", "jpeg"])
     img_zasu = st.file_uploader("座数", type=["png", "jpg", "jpeg"])
     img_tanka = st.file_uploader("客単価", type=["png", "jpg", "jpeg"])
@@ -283,13 +301,14 @@ if not df_raw.empty:
         k_rows += f'<tr><td>{m}</td><td>{k_n}</td><td>{u}{tv:,.0f}</td><td>{fmt_v(av, av>=tv, u)}</td><td>{fmt_p(av/tv*100 if tv else 0, av>=tv)}</td><td>{fmt_p(av/lv*100 if lv else 0, av>=lv)}</td><td class="comment-cell">{reason}</td></tr>'
     st.markdown(f'<table class="base-table kpi-table"><tr><th>評</th><th>KPI</th><th>目標</th><th>実績</th><th>目標比</th><th>LY比</th><th>理由</th></tr>{k_rows}</table>', unsafe_allow_html=True)
 
-    # KPIグラフ
+    # 📋 KPIグラフ（新旧両パターンのファイル名に対応した自動呼び出し）
     st.markdown("<h4>📋 KPIグラフ(１ストア平均)</h4>", unsafe_allow_html=True)
     suffixes = [("juchu", "受注"), ("zasu", "座数"), ("tanka", "客単価"), ("cvr", "CVR"), ("kyaku", "客数"), ("sonota", "その他")]
     
     grid_html = '<div class="carte-capture-container">'
     for s, label in suffixes:
-        p = get_local_image_path(current_key, s)
+        # 🌟 ここで新旧両方のファイルシステムから自動検索します
+        p = get_local_image_path_with_fallback(sel_year, sel_month, sel_week, s)
         grid_html += f'<div class="carte-capture-box"><div class="img-label">{label}</div>'
         if p:
             img_b64 = base64.b64encode(open(p, "rb").read()).decode()
