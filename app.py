@@ -50,7 +50,6 @@ WEEKLY_DATA_SP_ID = "1_lEdGhSnGzEIgMFn2Q_qUbCVIL35MVHQBxW0M_2TcyI"
 @st.cache_data(ttl=5)
 def load_raw_data_by_sheet_name(sel_year_str, sel_month_str):
     try:
-        # 選択された年（例:"2026"-> "26"）と月（例:"5月"-> "05"）から「2605」を生成
         year_suffix = str(sel_year_str)[2:]
         month_num = str(sel_month_str).replace("月", "").zfill(2)
         target_sheet_name = f"{year_suffix}{month_num}"
@@ -227,6 +226,9 @@ sel_year = st.sidebar.selectbox("年", year_list, index=0)
 month_list = ["3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"]
 sel_month = st.sidebar.selectbox("月", month_list, index=2) # デフォルト5月
 
+# 各週に対応する動的シート上の基準行インデックスのマッピング
+# WEEKサマリー行: W1=57, W2=58, W3=59...
+# 🌟 同時に下部KPI別サマリー行への対応を完全修正
 week_row_map = {"W1": 57, "W2": 58, "W3": 59, "W4": 60, "W5": 61, "W6": 62}
 sel_week = st.sidebar.selectbox("週", list(week_row_map.keys()))
 
@@ -260,7 +262,7 @@ with st.sidebar.form("input_form"):
             st.rerun()
 
 # --- 6. メイン表示 ---
-# 🌟 選択した年・月に応じた動的シート（「2605」など）からデータを呼び出し
+# 選択した年・月に応じた動的シート（「2605」など）からデータを呼び出し
 df_raw = load_raw_data_by_sheet_name(sel_year, sel_month)
 
 if not df_raw.empty:
@@ -330,13 +332,17 @@ if not df_raw.empty:
         w_rows += f'<tr><td>{w_n}</td><td>{wa:,.0f}</td><td>{wt:,.0f}</td><td>{fmt_v(wa-wt, wa>=wt)}</td><td>{fmt_p(wa/wt*100 if wt else 0, wa>=wt)}</td><td>{wb:,.0f}</td><td>{fmt_v(wa-wb, wa>=wb)}</td><td>{fmt_p(wa/wb*100 if wb else 0, wa>=wb)}</td><td>{wl:,.0f}</td><td>{fmt_p(wa/wl*100 if wl else 0, wa>=wl)}</td></tr>'
     st.markdown(f'<table class="base-table"><tr><th>WEEK</th><th>受注額</th><th>目標</th><th>差額</th><th>達成率</th><th>予算</th><th>差額</th><th>達成率</th><th>前年実績</th><th>前年比</th></tr>{w_rows}</table>', unsafe_allow_html=True)
 
-    # KPI別サマリー
-    current_week_row_idx = week_row_map[sel_week]
+    # 🌟 KPI別サマリー（週次ごとのKPI詳細行に完全にマッピング修正）
+    # 動的シート構造に完全対応: W1=67行目, W2=68行目, W3=69行目... のように基準インデックスを加算補正
+    week_idx_num = ["W1","W2","W3","W4","W5","W6"].index(sel_week)
+    corrected_kpi_base_idx = 67 + week_idx_num
+    
     st.markdown(f"<h4>KPI別 ({sel_week})</h4>", unsafe_allow_html=True)
-    k_data = [("座数", 44, 48, 52, "zasu"), ("客単価", 47, 51, 55, "tanka"), ("CVR", 45, 49, 53, "cvr"), ("客数", 46, 50, 54, "kyaku")]
+    # 動的各シートの対応列: 座数(F,J,N列), 客単価(I,M,Q列), CVR(G,K,O列), 客数(H,L,P列) の本来のインデックスを設定
+    k_data = [("座数", 6, 10, 14, "zasu"), ("客単価", 9, 13, 17, "tanka"), ("CVR", 7, 11, 15, "cvr"), ("客数", 8, 12, 16, "kyaku")]
     k_rows = ""
     for k_n, ac, tc, lc, t_k in k_data:
-        av, tv, lv = get_score(df_raw, current_week_row_idx, ac), get_score(df_raw, current_week_row_idx, tc), get_score(df_raw, current_week_row_idx, lc)
+        av, tv, lv = get_score(df_raw, corrected_kpi_base_idx, ac), get_score(df_raw, corrected_kpi_base_idx, tc), get_score(df_raw, corrected_kpi_base_idx, lc)
         u, m = ("¥" if k_n == "客単価" else ""), ("◯" if (av/tv if tv else 0) >= 1 else "△" if (av/tv if tv else 0) >= 0.9 else "✕")
         reason = str(current_txt[t_k]).replace("\n", "<br>")
         k_rows += f'<tr><td>{m}</td><td>{k_n}</td><td>{u}{tv:,.0f}</td><td>{fmt_v(av, av>=tv, u)}</td><td>{fmt_p(av/tv*100 if tv else 0, av>=tv)}</td><td>{fmt_p(av/lv*100 if lv else 0, av>=lv)}</td><td class="comment-cell">{reason}</td></tr>'
