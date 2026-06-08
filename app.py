@@ -226,9 +226,8 @@ sel_year = st.sidebar.selectbox("年", year_list, index=0)
 month_list = ["3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"]
 sel_month = st.sidebar.selectbox("月", month_list, index=2) # デフォルト5月
 
-# 各週に対応する動的シート上の基準行インデックスのマッピング
-# WEEKサマリー行: W1=57, W2=58, W3=59...
-# 🌟 同時に下部KPI別サマリー行への対応を完全修正
+# 各週に対応する動的シート上の行インデックスマッピング
+# W1=57行目, W2=58行目, W3=59行目, W4=60行目, W5=61行目, W6=62行目
 week_row_map = {"W1": 57, "W2": 58, "W3": 59, "W4": 60, "W5": 61, "W6": 62}
 sel_week = st.sidebar.selectbox("週", list(week_row_map.keys()))
 
@@ -242,7 +241,7 @@ with st.sidebar.form("input_form"):
     st.info(f"📍 読込中キー: {current_key}" )
     r_zasu = st.text_area("座数の理由", value=current_txt["zasu"])
     r_tanka = st.text_area("客単価の理由", value=current_txt["tanka"])
-    r_cvr = st.text_area("CVRの理由", value=current_txt["cvr"])
+    r_cvr = st.text_area("CVR의 이유", value=current_txt["cvr"])
     r_kyaku = st.text_area("客数の理由", value=current_txt["kyaku"])
     st.markdown("<p style='font-size:0.85em; font-weight:bold; margin-bottom:-5px;'>📸 キャプチャ添付</p>", unsafe_allow_html=True)
     
@@ -310,7 +309,10 @@ if not df_raw.empty:
 
     def fmt_v(val, cond, unit=""):
         cls = "reach" if cond else "unmet"
-        t = f"{unit}{abs(val):,.0f}" if abs(val) >= 100 else f"{unit}{abs(val):.2f}"
+        if k_n == "客単価":
+            t = f"{unit}{abs(val):,.0f}"
+        else:
+            t = f"{unit}{abs(val):,.0f}" if abs(val) >= 100 else f"{unit}{abs(val):.2f}"
         return f'<span class="{cls}">{t}</span>'
 
     def fmt_p(val, cond):
@@ -332,20 +334,42 @@ if not df_raw.empty:
         w_rows += f'<tr><td>{w_n}</td><td>{wa:,.0f}</td><td>{wt:,.0f}</td><td>{fmt_v(wa-wt, wa>=wt)}</td><td>{fmt_p(wa/wt*100 if wt else 0, wa>=wt)}</td><td>{wb:,.0f}</td><td>{fmt_v(wa-wb, wa>=wb)}</td><td>{fmt_p(wa/wb*100 if wb else 0, wa>=wb)}</td><td>{wl:,.0f}</td><td>{fmt_p(wa/wl*100 if wl else 0, wa>=wl)}</td></tr>'
     st.markdown(f'<table class="base-table"><tr><th>WEEK</th><th>受注額</th><th>目標</th><th>差額</th><th>達成率</th><th>予算</th><th>差額</th><th>達成率</th><th>前年実績</th><th>前年比</th></tr>{w_rows}</table>', unsafe_allow_html=True)
 
-    # 🌟 KPI別サマリー（週次ごとのKPI詳細行に完全にマッピング修正）
-    # 動的シート構造に完全対応: W1=67行目, W2=68行目, W3=69行目... のように基準インデックスを加算補正
-    week_idx_num = ["W1","W2","W3","W4","W5","W6"].index(sel_week)
-    corrected_kpi_base_idx = 67 + week_idx_num
+    # 🌟 56行目のヘッダー配列に基づく各週KPI別データ抽出ロジック（完全整合）
+    selected_row_idx = week_row_map[sel_week] # 選択された週の行番号 (例: W1=57, W2=58...)
     
     st.markdown(f"<h4>KPI別 ({sel_week})</h4>", unsafe_allow_html=True)
-    # 動的各シートの対応列: 座数(F,J,N列), 客単価(I,M,Q列), CVR(G,K,O列), 客数(H,L,P列) の本来のインデックスを設定
-    k_data = [("座数", 6, 10, 14, "zasu"), ("客単価", 9, 13, 17, "tanka"), ("CVR", 7, 11, 15, "cvr"), ("客数", 8, 12, 16, "kyaku")]
+    # 各アルファベット列に対応する1オリジン・インデックス
+    # 座数: AR(44), AV(48), AZ(52) | 客単価: AU(47), AY(51), BC(55)
+    # CVR: AS(45), AW(49), BA(53) | 客数: AT(46), AX(50), BB(54)
+    k_data = [
+        ("座数", 44, 48, 52, "zasu"), 
+        ("客単価", 47, 51, 55, "tanka"), 
+        ("CVR", 45, 49, 53, "cvr"), 
+        ("客数", 46, 50, 54, "kyaku")
+    ]
+    
     k_rows = ""
     for k_n, ac, tc, lc, t_k in k_data:
-        av, tv, lv = get_score(df_raw, corrected_kpi_base_idx, ac), get_score(df_raw, corrected_kpi_base_idx, tc), get_score(df_raw, corrected_kpi_base_idx, lc)
-        u, m = ("¥" if k_n == "客単価" else ""), ("◯" if (av/tv if tv else 0) >= 1 else "△" if (av/tv if tv else 0) >= 0.9 else "✕")
+        av = get_score(df_raw, selected_row_idx, ac)
+        tv = get_score(df_raw, selected_row_idx, tc)
+        lv = get_score(df_raw, selected_row_idx, lc)
+        
+        # パーセンテージ表示(CVRなど)のためのフォーマット補正ロジック
+        is_percentage = (k_n == "CVR")
+        u = "¥" if k_n == "客単価" else ""
+        
+        # 達成判定記号
+        m = "◯" if (av/tv if tv else 0) >= 1 else "△" if (av/tv if tv else 0) >= 0.9 else "✕"
         reason = str(current_txt[t_k]).replace("\n", "<br>")
-        k_rows += f'<tr><td>{m}</td><td>{k_n}</td><td>{u}{tv:,.0f}</td><td>{fmt_v(av, av>=tv, u)}</td><td>{fmt_p(av/tv*100 if tv else 0, av>=tv)}</td><td>{fmt_p(av/lv*100 if lv else 0, av>=lv)}</td><td class="comment-cell">{reason}</td></tr>'
+        
+        # 表示テキストの整形
+        if is_percentage:
+            av_str = f"{av:.2f}%" if av < 100 else f"{av/100:.2f}%" # スプレッドシート側の100倍表記対策
+            tv_str = f"{tv:.2f}%" if tv < 100 else f"{tv/100:.2f}%"
+            k_rows += f'<tr><td>{m}</td><td>{k_n}</td><td>{tv_str}</td><td><span class="{"reach" if av>=tv else "unmet"}">{av_str}</span></td><td>{fmt_p(av/tv*100 if tv else 0, av>=tv)}</td><td>{fmt_p(av/lv*100 if lv else 0, av>=lv)}</td><td class="comment-cell">{reason}</td></tr>'
+        else:
+            k_rows += f'<tr><td>{m}</td><td>{k_n}</td><td>{u}{tv:,.0f}</td><td>{fmt_v(av, av>=tv, u)}</td><td>{fmt_p(av/tv*100 if tv else 0, av>=tv)}</td><td>{fmt_p(av/lv*100 if lv else 0, av>=lv)}</td><td class="comment-cell">{reason}</td></tr>'
+            
     st.markdown(f'<table class="base-table kpi-table"><tr><th>評</th><th>KPI</th><th>目標</th><th>実績</th><th>目標比</th><th>LY比</th><th>理由</th></tr>{k_rows}</table>', unsafe_allow_html=True)
 
     # 📋 KPIグラフ
