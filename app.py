@@ -224,11 +224,17 @@ year_list = ["2026", "2027", "2028"]
 sel_year = st.sidebar.selectbox("年", year_list, index=0)
 
 month_list = ["3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"]
-sel_month = st.sidebar.selectbox("月", month_list, index=2) # デフォルト5月
+sel_month = st.sidebar.selectbox("月", month_list, index=3) # デフォルト6月
 
-# 各週に対応する動的シート上の行インデックスマッピング
-# W1=57, W2=58, W3=59, W4=60, W5=61, W6=62
-week_row_map = {"W1": 57, "W2": 58, "W3": 59, "W4": 60, "W5": 61, "W6": 62}
+# 🌟 2606シート（2026年6月）かどうかの判定フラグ
+is_june_2026 = (str(sel_year) == "2026" and str(sel_month) == "6月")
+
+# 動的行マッピング（6月度のみ1行ずつ下にシフト）
+if is_june_2026:
+    week_row_map = {"W1": 58, "W2": 59, "W3": 60, "W4": 61, "W5": 62, "W6": 63}
+else:
+    week_row_map = {"W1": 57, "W2": 58, "W3": 59, "W4": 60, "W5": 61, "W6": 62}
+
 sel_week = st.sidebar.selectbox("週", list(week_row_map.keys()))
 
 current_key = f"{sel_year}-{sel_month}-{sel_week}"
@@ -261,7 +267,6 @@ with st.sidebar.form("input_form"):
             st.rerun()
 
 # --- 6. メイン表示 ---
-# 選択した年・月に応じた動的シート（「2605」など）からデータを呼び出し
 df_raw = load_raw_data_by_sheet_name(sel_year, sel_month)
 
 if not df_raw.empty:
@@ -307,7 +312,6 @@ if not df_raw.empty:
         }
     </style>''', unsafe_allow_html=True)
 
-    # 🌟 NameErrorを防ぐため、kpi_name変数を独立させたフォーマット共通関数
     def fmt_v(val, cond, unit="", is_tanka=False):
         cls = "reach" if cond else "unmet"
         if is_tanka:
@@ -327,7 +331,7 @@ if not df_raw.empty:
     st.markdown("<h4>All Stores ※FC excluded</h4>", unsafe_allow_html=True)
     st.markdown(f'''<table class="base-table"><tr><th style="background-color:#606970;">月次受注額</th><td colspan="5" style="font-size:1.2em;font-weight:bold;">{act:,.0f}</td></tr><tr><th>月次目標</th><td>{tgt:,.0f}</td><th>月次予算</th><td>{bgt:,.0f}</td><th>前年受注額</th><td>{ly:,.0f}</td></tr><tr><th>目標比</th><td>{fmt_p(act/tgt*100 if tgt else 0, act>=tgt)}</td><th>予算比</th><td>{fmt_p(act/bgt*100 if bgt else 0, act>=bgt)}</td><th>前年比</th><td>{fmt_p(act/ly*100 if ly else 0, act>=ly)}</td></tr><tr><th>差額</th><td>{fmt_v(act-tgt, act>=tgt)}</td><th>差額</th><td>{fmt_v(act-bgt, act>=bgt)}</td><th>差額</th><td>{fmt_v(act-ly, act>=ly)}</td></tr><tr><th>MTD目標</th><td>{mt:,.0f}</td><th>MTD予算</th><td>{mb:,.0f}</td><th>MTD前年</th><td>{ml:,.0f}</td></tr><tr><th>MTD目標%</th><td>{fmt_p(act/mt*100 if mt else 0, act>=mt)}</td><th>MTD予算%</th><td>{fmt_p(act/mb*100 if mb else 0, act>=mb)}</td><th>MTD前年%</th><td>{fmt_p(act/ml*100 if ml else 0, act>=ml)}</td></tr><tr><th>MTD目標 差額</th><td>{fmt_v(act-mt, act>=mt)}</td><th>MTD予算 差額</th><td>{fmt_v(act-mb, act>=mb)}</td><th>MTD前年 差額</th><td>{fmt_v(act-ml, act>=ml)}</td></tr></table>''', unsafe_allow_html=True)
 
-    # WEEKサマリー
+    # WEEKサマリー (動的に週と対応する行インデックスを適用)
     st.markdown("<h4>WEEKサマリー</h4>", unsafe_allow_html=True)
     w_rows = ""
     for w_n, r_i in week_row_map.items():
@@ -335,12 +339,10 @@ if not df_raw.empty:
         w_rows += f'<tr><td>{w_n}</td><td>{wa:,.0f}</td><td>{wt:,.0f}</td><td>{fmt_v(wa-wt, wa>=wt)}</td><td>{fmt_p(wa/wt*100 if wt else 0, wa>=wt)}</td><td>{wb:,.0f}</td><td>{fmt_v(wa-wb, wa>=wb)}</td><td>{fmt_p(wa/wb*100 if wb else 0, wa>=wb)}</td><td>{wl:,.0f}</td><td>{fmt_p(wa/wl*100 if wl else 0, wa>=wl)}</td></tr>'
     st.markdown(f'<table class="base-table"><tr><th>WEEK</th><th>受注額</th><th>目標</th><th>差額</th><th>達成率</th><th>予算</th><th>差額</th><th>達成率</th><th>前年実績</th><th>前年比</th></tr>{w_rows}</table>', unsafe_allow_html=True)
 
-    # 🌟 56行目ヘッダー項目に完全準拠した特定セル位置からのデータ自動マッピング
+    # 🌟 KPI別サマリー (選択された週の行インデックスを適用)
     selected_row_idx = week_row_map[sel_week] 
     
     st.markdown(f"<h4>KPI別 ({sel_week})</h4>", unsafe_allow_html=True)
-    # アルファベット指定列マッピング: 座数[AR(44), AV(48), AZ(52)] | 客単価[AU(47), AY(51), BC(55)]
-    # CVR[AS(45), AW(49), BA(53)] | 客数[AT(46), AX(50), BB(54)]
     k_data = [
         ("座数", 44, 48, 52, "zasu"), 
         ("客単価", 47, 51, 55, "tanka"), 
@@ -362,7 +364,6 @@ if not df_raw.empty:
         reason = str(current_txt[t_k]).replace("\n", "<br>")
         
         if is_percentage:
-            # 100倍表記(例:11.89%)と小数表記両方の自動ズレ補正
             av_str = f"{av:.2f}%" if av < 100 else f"{av/100:.2f}%"
             tv_str = f"{tv:.2f}%" if tv < 100 else f"{tv/100:.2f}%"
             k_rows += f'<tr><td>{m}</td><td>{k_n}</td><td>{tv_str}</td><td><span class="{"reach" if av>=tv else "unmet"}">{av_str}</span></td><td>{fmt_p(av/tv*100 if tv else 0, av>=tv)}</td><td>{fmt_p(av/lv*100 if lv else 0, av>=lv)}</td><td class="comment-cell">{reason}</td></tr>'
@@ -457,4 +458,4 @@ if not df_raw.empty:
     </div>
     ''', unsafe_allow_html=True)
 else:
-    st.warning("指定された月のデータシート（例：2605）を読み込めませんでした。シート名を確認してください。")
+    st.warning("指定された月のデータシート（例：2606）を読み込めませんでした。シート名を確認してください。")
