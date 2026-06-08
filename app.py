@@ -104,42 +104,51 @@ def get_score(df, row, col):
         return pd.to_numeric(s_val, errors='coerce') if s_val else 0
     except: return 0
 
-# --- 4. スプレッドシートからのデータ・画像一括読み書きロジック ---
-def fetch_sheet_data_and_images(search_key):
+# --- 4. テキスト・画像個別シート永続管理ロジック ---
+def fetch_sheet_text_live(search_key):
     try:
         sh = gc.open_by_key(SAVE_SHEET_ID)
         ws = sh.worksheet("シート1")
         all_data = ws.get_all_values()
-        
-        res = {
-            "zasu": "", "tanka": "", "cvr": "", "kyaku": "", "summary": "",
-            "img_juchu": "", "img_zasu": "", "img_tanka": "", "img_cvr": "", "img_kyaku": "", "img_sonota": ""
-        }
+        res = {"zasu": "", "tanka": "", "cvr": "", "kyaku": "", "summary": ""}
         search_key_clean = str(search_key).strip()
-        
         for row in all_data:
             if row and str(row[0]).strip() == search_key_clean:
-                padded = row + [""] * (12 - len(row))
-                res["zasu"] = padded[1]
-                res["tanka"] = padded[2]
-                res["cvr"] = padded[3]
-                res["kyaku"] = padded[4]
-                res["summary"] = padded[5]
-                res["img_juchu"] = padded[6]
-                res["img_zasu"] = padded[7]
-                res["img_tanka"] = padded[8]
-                res["img_cvr"] = padded[9]
-                res["img_kyaku"] = padded[10]
-                res["img_sonota"] = padded[11]
+                padded = row + [""] * (6 - len(row))
+                res["zasu"], res["tanka"], res["cvr"], res["kyaku"], res["summary"] = padded[1:6]
                 return res
         return res
     except:
-        return {
-            "zasu": "", "tanka": "", "cvr": "", "kyaku": "", "summary": "",
-            "img_juchu": "", "img_zasu": "", "img_tanka": "", "img_cvr": "", "img_kyaku": "", "img_sonota": ""
-        }
+        return {"zasu": "", "tanka": "", "cvr": "", "kyaku": "", "summary": ""}
 
-# 画像を圧縮して5万文字以下にするロジック
+def fetch_sheet_images_live(search_key):
+    res = {"img_juchu": "", "img_zasu": "", "img_tanka": "", "img_cvr": "", "img_kyaku": "", "img_sonota": ""}
+    try:
+        sh = gc.open_by_key(SAVE_SHEET_ID)
+        # 画像専用シートの存在確認。なければ作成
+        try:
+            ws = sh.worksheet("画像データ")
+        except:
+            ws = sh.add_worksheet(title="画像データ", rows="100", cols="7")
+            ws.append_row(["search_key", "juchu", "zasu", "tanka", "cvr", "kyaku", "sonota"])
+            return res
+            
+        all_data = ws.get_all_values()
+        search_key_clean = str(search_key).strip()
+        for row in all_data:
+            if row and str(row[0]).strip() == search_key_clean:
+                padded = row + [""] * (7 - len(row))
+                res["img_juchu"] = padded[1]
+                res["img_zasu"] = padded[2]
+                res["img_tanka"] = padded[3]
+                res["img_cvr"] = padded[4]
+                res["img_kyaku"] = padded[5]
+                res["img_sonota"] = padded[6]
+                return res
+        return res
+    except:
+        return res
+
 def process_and_compress_image(uploaded_file):
     if uploaded_file is None:
         return ""
@@ -147,42 +156,60 @@ def process_and_compress_image(uploaded_file):
         img = Image.open(uploaded_file)
         if img.mode != 'RGB':
             img = img.convert('RGB')
-        
-        # 5万文字以下（安全圏）に収まるよう解像度を自動縮小
         img.thumbnail((450, 450))
         buffer = io.BytesIO()
-        img.save(buffer, format="JPEG", quality=65) # JPEG圧縮で容量削減
+        img.save(buffer, format="JPEG", quality=65)
         return base64.b64encode(buffer.getvalue()).decode()
     except:
         return ""
 
-def save_all_to_sheet(search_key, text_list, new_images, old_data):
+def save_all_data_and_images(search_key, text_list, new_images, old_images):
     try:
         sh = gc.open_by_key(SAVE_SHEET_ID)
-        ws = sh.worksheet("シート1")
-        all_values = ws.get_all_values()
+        search_key_clean = str(search_key).strip()
         
-        target_row, search_key_clean = -1, str(search_key).strip()
-        for i, row in enumerate(all_values):
+        # 1. テキスト（シート1）の保存
+        ws_text = sh.worksheet("シート1")
+        all_text_vals = ws_text.get_all_values()
+        t_row = -1
+        for i, row in enumerate(all_text_vals):
             if row and str(row[0]).strip() == search_key_clean:
-                target_row = i + 1
+                t_row = i + 1
+                break
+        final_text_row = [search_key_clean] + [str(d) for d in text_list]
+        if t_row != -1:
+            ws_text.update(range_name=f"A{t_row}:F{t_row}", values=[final_text_row])
+        else:
+            ws_text.append_row(final_text_row)
+            
+        # 2. 画像（画像データシート）の保存
+        try:
+            ws_img = sh.worksheet("画像データ")
+        except:
+            ws_img = sh.add_worksheet(title="画像データ", rows="100", cols="7")
+            ws_img.append_row(["search_key", "juchu", "zasu", "tanka", "cvr", "kyaku", "sonota"])
+            
+        all_img_vals = ws_img.get_all_values()
+        i_row = -1
+        for i, row in enumerate(all_img_vals):
+            if row and str(row[0]).strip() == search_key_clean:
+                i_row = i + 1
                 break
                 
-        # 新しい入力があれば圧縮、なければ以前の画像データを維持する防衛ロジック
         final_images = []
         img_keys = ["img_juchu", "img_zasu", "img_tanka", "img_cvr", "img_kyaku", "img_sonota"]
         for idx, img_obj in enumerate(new_images):
             if img_obj is not None:
                 final_images.append(process_and_compress_image(img_obj))
             else:
-                final_images.append(old_data.get(img_keys[idx], ""))
+                final_images.append(old_images.get(img_keys[idx], ""))
                 
-        final_row = [search_key_clean] + [str(d) for d in text_list] + final_images
-        
-        if target_row != -1:
-            ws.update(range_name=f"A{target_row}:L{target_row}", values=[final_row])
+        final_img_row = [search_key_clean] + final_images
+        if i_row != -1:
+            ws_img.update(range_name=f"A{i_row}:G{i_row}", values=[final_img_row])
         else:
-            ws.append_row(final_row)
+            ws_img.append_row(final_img_row)
+            
         return True
     except:
         return False
@@ -204,8 +231,10 @@ week_row_map = {"W1": 57, "W2": 58, "W3": 59, "W4": 60, "W5": 61, "W6": 62}
 sel_week = st.sidebar.selectbox("週", list(week_row_map.keys()))
 
 current_key = f"{sel_year}-{sel_month}-{sel_week}"
-# スプレッドシートから画像とテキストを同期読み込み
-current_txt = fetch_sheet_data_and_images(current_key)
+
+# データと画像を独立したシートからリアルタイム読み込み
+current_txt = fetch_sheet_text_live(current_key)
+current_imgs = fetch_sheet_images_live(current_key)
 
 with st.sidebar.form("input_form"):
     st.info(f"📍 読込中キー: {current_key}" )
@@ -225,8 +254,8 @@ with st.sidebar.form("input_form"):
     
     if st.form_submit_button("全ユーザーに共有保存"):
         new_imgs = [img_juchu, img_zasu, img_tanka, img_cvr, img_kyaku, img_sonota]
-        if save_all_to_sheet(current_key, [r_zasu, r_tanka, r_cvr, r_kyaku, sum_text], new_imgs, current_txt):
-            st.success("スプレッドシートに永続保存しました！")
+        if save_all_data_and_images(current_key, [r_zasu, r_tanka, r_cvr, r_kyaku, sum_text], new_imgs, current_imgs):
+            st.success("スプレッドシートに完全同期保存しました！")
             st.cache_data.clear()
             st.rerun()
 
@@ -312,13 +341,13 @@ if not df_raw.empty:
         k_rows += f'<tr><td>{m}</td><td>{k_n}</td><td>{u}{tv:,.0f}</td><td>{fmt_v(av, av>=tv, u)}</td><td>{fmt_p(av/tv*100 if tv else 0, av>=tv)}</td><td>{fmt_p(av/lv*100 if lv else 0, av>=lv)}</td><td class="comment-cell">{reason}</td></tr>'
     st.markdown(f'<table class="base-table kpi-table"><tr><th>評</th><th>KPI</th><th>目標</th><th>実績</th><th>目標比</th><th>LY比</th><th>理由</th></tr>{k_rows}</table>', unsafe_allow_html=True)
 
-    # 📋 KPIグラフ（スプレッドシートから直接Base64で呼び出す永続安全グリッド）
+    # 📋 KPIグラフ（新シートから独立して確実に読み出す高速安全グリッド）
     st.markdown("<h4>📋 KPIグラフ(１ストア平均)</h4>", unsafe_allow_html=True)
     img_keys = [("img_juchu", "受注"), ("img_zasu", "座数"), ("img_tanka", "客単価"), ("img_cvr", "CVR"), ("img_kyaku", "客数"), ("img_sonota", "その他")]
     
     grid_html = '<div class="carte-capture-container">'
     for k, label in img_keys:
-        img_data = current_txt.get(k, "")
+        img_data = current_imgs.get(k, "")
         grid_html += f'<div class="carte-capture-box"><div class="img-label">{label}</div>'
         if img_data:
             grid_html += f'<img src="data:image/jpeg;base64,{img_data}" class="carte-img-frame">'
@@ -375,7 +404,7 @@ if not df_raw.empty:
         for _ in ten_weeks_indices[1:]: header_html += '<th>売上シェア</th>'
         header_html += '</tr>'
         
-        rows_html, total_base = "", report_data["全国"]["weeks"].get(base_col_idx, 0) if "全国" in report_data else report_data["全体"]["weeks"].get(base_col_idx, 0)
+        rows_html, total_base = "", report_data["全体"]["weeks"].get(base_col_idx, 0)
         for g in target_gyotais:
             cls = ' class="total-row"' if g == "全体" else ""
             g_cnt, g_act = report_data[g]["count"], report_data[g]["weeks"].get(base_col_idx, 0)
