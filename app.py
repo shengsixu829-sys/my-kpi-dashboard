@@ -125,15 +125,6 @@ def fetch_sheet_text_live(search_key):
     except:
         return {"zasu": "", "tanka": "", "cvr": "", "kyaku": "", "summary": ""}
 
-def自动複製画像(old_key, new_key, suffix):
-    old_path = os.path.join(IMG_DIR, f"{old_key}_{suffix}.png")
-    new_path = os.path.join(IMG_DIR, f"{new_key}_{suffix}.png")
-    if os.path.exists(old_path) and not os.path.exists(new_path):
-        with open(old_path, "rb") as rf:
-            data = rf.read()
-        with open(new_path, "wb") as wf:
-            wf.write(data)
-
 def save_to_sheet_live(search_key, data_list):
     try:
         sh = gc.open_by_key(SAVE_SHEET_ID)
@@ -189,8 +180,6 @@ with st.sidebar.form("input_form"):
     r_cvr = st.text_area("CVRの理由", value=current_txt["cvr"])
     r_kyaku = st.text_area("客数の理由", value=current_txt["kyaku"])
     st.markdown("<p style='font-size:0.85em; font-weight:bold; margin-bottom:-5px;'>📸 キャプチャ添付</p>", unsafe_allow_html=True)
-    
-    # 🌟 各インプットに対して前回のファイル状態を損なわないよう独立して受付
     img_juchu = st.file_uploader("受注額", type=["png", "jpg", "jpeg"])
     img_zasu = st.file_uploader("座数", type=["png", "jpg", "jpeg"])
     img_tanka = st.file_uploader("客単価", type=["png", "jpg", "jpeg"])
@@ -201,7 +190,6 @@ with st.sidebar.form("input_form"):
     
     if st.form_submit_button("全ユーザーに共有保存"):
         if save_to_sheet_live(current_key, [r_zasu, r_tanka, r_cvr, r_kyaku, sum_text]):
-            # 🌟 アップロード欄に新しい画像がある場合のみ上書き保存（空欄の時は過去の画像を維持）
             if img_juchu is not None: save_local_image(current_key, "juchu", img_juchu)
             if img_zasu is not None: save_local_image(current_key, "zasu", img_zasu)
             if img_tanka is not None: save_local_image(current_key, "tanka", img_tanka)
@@ -295,7 +283,7 @@ if not df_raw.empty:
         k_rows += f'<tr><td>{m}</td><td>{k_n}</td><td>{u}{tv:,.0f}</td><td>{fmt_v(av, av>=tv, u)}</td><td>{fmt_p(av/tv*100 if tv else 0, av>=tv)}</td><td>{fmt_p(av/lv*100 if lv else 0, av>=lv)}</td><td class="comment-cell">{reason}</td></tr>'
     st.markdown(f'<table class="base-table kpi-table"><tr><th>評</th><th>KPI</th><th>目標</th><th>実績</th><th>目標比</th><th>LY比</th><th>理由</th></tr>{k_rows}</table>', unsafe_allow_html=True)
 
-    # 🌟 KPIグラフ（修正：過去データの完全連動・自動呼び出し機能が有効化されています）
+    # KPIグラフ
     st.markdown("<h4>📋 KPIグラフ(１ストア平均)</h4>", unsafe_allow_html=True)
     suffixes = [("juchu", "受注"), ("zasu", "座数"), ("tanka", "客単価"), ("cvr", "CVR"), ("kyaku", "客数"), ("sonota", "その他")]
     
