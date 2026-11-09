@@ -224,12 +224,13 @@ year_list = ["2026", "2027", "2028"]
 sel_year = st.sidebar.selectbox("年", year_list, index=0)
 
 month_list = ["3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"]
-sel_month = st.sidebar.selectbox("月", month_list, index=8) # デフォルト11月
+sel_month = st.sidebar.selectbox("月", month_list, index=3) # デフォルト6月
 
-# 🌟 2606（6月）または 2611（11月）は週初め（月曜始まり/1日ずれ）のため1行下にシフト
-is_shifted_month = (str(sel_year) == "2026" and str(sel_month) in ["6月", "11月"])
+# 🌟 2606シート（2026年6月）かどうかの判定フラグ
+is_june_2026 = (str(sel_year) == "2026" and str(sel_month) == "6月")
 
-if is_shifted_month:
+# 動的行マッピング（6月度のみ1行ずつ下にシフト）
+if is_june_2026:
     week_row_map = {"W1": 58, "W2": 59, "W3": 60, "W4": 61, "W5": 62, "W6": 63}
 else:
     week_row_map = {"W1": 57, "W2": 58, "W3": 59, "W4": 60, "W5": 61, "W6": 62}
@@ -243,7 +244,7 @@ current_txt = fetch_sheet_text_live(current_key)
 current_imgs = fetch_sheet_images_live(current_key)
 
 with st.sidebar.form("input_form"):
-    st.info(f"📍 読込中キー: {current_key}")
+    st.info(f"📍 読込中キー: {current_key}" )
     r_zasu = st.text_area("座数の理由", value=current_txt["zasu"])
     r_tanka = st.text_area("客単価の理由", value=current_txt["tanka"])
     r_cvr = st.text_area("CVRの理由", value=current_txt["cvr"])
@@ -328,9 +329,9 @@ if not df_raw.empty:
     tgt, bgt, ly = get_score(df_raw, 3, 7), get_score(df_raw, 3, 9), get_score(df_raw, 3, 11)
     mt, mb, ml = get_score(df_raw, 6, 7), get_score(df_raw, 6, 9), get_score(df_raw, 6, 11)
     st.markdown("<h4>All Stores ※FC excluded</h4>", unsafe_allow_html=True)
-    st.markdown(f'''<table class="base-table"><tr><th style="background-color:#606970;">月次受注額</th><td colspan="5" style="font-size:1.2em;font-weight:bold;">{act:,.0f}</td></tr><tr><th>月次目標</th><td>{tgt:,.0f}</td><th>月次予算</th><td>{bgt:,.0f}</td><th>前年受注額</th><td>{ly:,.0f}</td></tr><tr><th>目標比</th><td>{fmt_p(act/tgt*100 if tgt else 0, act>=tgt)}</td><th>予算比</th><td>{fmt_p(act/bgt*100 if bgt else 0, act>=bgt)}</td><th>前年比</th><td>{fmt_p(act/ly*100 if ly else 0, act>=ly)}</td></tr><tr><th>差額</th><td>{fmt_v(act-tgt, act>=tgt)}</td><th>差額</th><td>{fmt_v(act-bgt, act>=bgt)}</td><th>差額</th><td>{fmt_v(act-ly, act>=ly)}</td></tr><tr><th>MTD目標</th><td>{mt:,.0f}</td><th>MTD予算</th><td>{mb:,.0f}</td><th>MTD前年</th><td>{ml:,.0f}</td></tr><tr><th>MTD目標%</th><td>{fmt_p(act/mt*100 if mt else 0, act>=mt)}</td><th>MTD予算%</th><td>{fmt_p(act/mb*100 if mb else 0, act>=mb)}</td><th>MTD前年%</th><td>{fmt_p(act/ml*100 if ml else 0, act>=ml)}</td></tr><tr><th>MTD目標 差額</th><td>{fmt_v(act-mt, act>=mt)}</td><th>MTD予算 差額</th><td>{fmt_v(act-mb, decline:=act>=mb)}</td><th>MTD前年 差額</th><td>{fmt_v(act-ml, act>=ml)}</td></tr></table>''', unsafe_allow_html=True)
+    st.markdown(f'''<table class="base-table"><tr><th style="background-color:#606970;">月次受注額</th><td colspan="5" style="font-size:1.2em;font-weight:bold;">{act:,.0f}</td></tr><tr><th>月次目標</th><td>{tgt:,.0f}</td><th>月次予算</th><td>{bgt:,.0f}</td><th>前年受注額</th><td>{ly:,.0f}</td></tr><tr><th>目標比</th><td>{fmt_p(act/tgt*100 if tgt else 0, act>=tgt)}</td><th>予算比</th><td>{fmt_p(act/bgt*100 if bgt else 0, act>=bgt)}</td><th>前年比</th><td>{fmt_p(act/ly*100 if ly else 0, act>=ly)}</td></tr><tr><th>差額</th><td>{fmt_v(act-tgt, act>=tgt)}</td><th>差額</th><td>{fmt_v(act-bgt, act>=bgt)}</td><th>差額</th><td>{fmt_v(act-ly, act>=ly)}</td></tr><tr><th>MTD目標</th><td>{mt:,.0f}</td><th>MTD予算</th><td>{mb:,.0f}</td><th>MTD前年</th><td>{ml:,.0f}</td></tr><tr><th>MTD目標%</th><td>{fmt_p(act/mt*100 if mt else 0, act>=mt)}</td><th>MTD予算%</th><td>{fmt_p(act/mb*100 if mb else 0, act>=mb)}</td><th>MTD前年%</th><td>{fmt_p(act/ml*100 if ml else 0, act>=ml)}</td></tr><tr><th>MTD目標 差額</th><td>{fmt_v(act-mt, act>=mt)}</td><th>MTD予算 差額</th><td>{fmt_v(act-mb, act>=mb)}</td><th>MTD前年 差額</th><td>{fmt_v(act-ml, act>=ml)}</td></tr></table>''', unsafe_allow_html=True)
 
-    # WEEKサマリー
+    # WEEKサマリー (動的に週と対応する行インデックスを適用)
     st.markdown("<h4>WEEKサマリー</h4>", unsafe_allow_html=True)
     w_rows = ""
     for w_n, r_i in week_row_map.items():
@@ -338,7 +339,7 @@ if not df_raw.empty:
         w_rows += f'<tr><td>{w_n}</td><td>{wa:,.0f}</td><td>{wt:,.0f}</td><td>{fmt_v(wa-wt, wa>=wt)}</td><td>{fmt_p(wa/wt*100 if wt else 0, wa>=wt)}</td><td>{wb:,.0f}</td><td>{fmt_v(wa-wb, wa>=wb)}</td><td>{fmt_p(wa/wb*100 if wb else 0, wa>=wb)}</td><td>{wl:,.0f}</td><td>{fmt_p(wa/wl*100 if wl else 0, wa>=wl)}</td></tr>'
     st.markdown(f'<table class="base-table"><tr><th>WEEK</th><th>受注額</th><th>目標</th><th>差額</th><th>達成率</th><th>予算</th><th>差額</th><th>達成率</th><th>前年実績</th><th>前年比</th></tr>{w_rows}</table>', unsafe_allow_html=True)
 
-    # 🌟 各週のKPI別データ抽出
+    # 🌟 KPI別サマリー (選択された週の行インデックスを適用)
     selected_row_idx = week_row_map[sel_week] 
     
     st.markdown(f"<h4>KPI別 ({sel_week})</h4>", unsafe_allow_html=True)
@@ -415,7 +416,8 @@ if not df_raw.empty:
         for r_idx in range(1, len(df_weekly)):
             st_name, kpi = str(df_weekly.iloc[r_idx, 1]).strip(), str(df_weekly.iloc[r_idx, 4]).strip()
             
-            if st_name in mall_mapping and "受注金額(税抜)" in kpi:
+            if_condition = st_name in mall_mapping and "受注金額(税抜)" in kpi
+            if if_condition:
                 g = mall_mapping[st_name]
                 if g in report_data:
                     unique_stores[g].add(st_name); unique_stores["全体"].add(st_name)
@@ -456,4 +458,4 @@ if not df_raw.empty:
     </div>
     ''', unsafe_allow_html=True)
 else:
-    st.warning("指定された月のデータシート（例：2611）を読み込めませんでした。シート名を確認してください。")
+    st.warning("指定された月のデータシート（例：2606）を読み込めませんでした。シート名を確認してください。")
